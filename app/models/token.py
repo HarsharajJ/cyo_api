@@ -8,6 +8,5 @@ class RefreshToken(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     token: Mapped[str] = mapped_column(String, unique=True, index=True)
     user_id: Mapped[int] = mapped_column(Integer)
-    ip_address: Mapped[str] = mapped_column(String)
     expires_at: Mapped[datetime] = mapped_column(DateTime)
     is_blacklisted: Mapped[bool] = mapped_column(Boolean, default=False)

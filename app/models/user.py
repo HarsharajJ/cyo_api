@@ -1,6 +1,7 @@
-from sqlalchemy import String, DateTime, Boolean, Integer
+from sqlalchemy import String, DateTime, Boolean, Integer, JSON
 from sqlalchemy.orm import Mapped, mapped_column
 from datetime import datetime, timezone
+from typing import Optional
 from app.database import Base
 
 class User(Base):
@@ -14,3 +15,11 @@ class User(Base):
     mobile_number: Mapped[str] = mapped_column(String)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now(timezone.utc))
+    # Profile fields
+    profile_picture_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    bio: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    instagram_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    twitter_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    linkedin_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    portfolio_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    interests: Mapped[Optional[list[str]]] = mapped_column(JSON, nullable=True)

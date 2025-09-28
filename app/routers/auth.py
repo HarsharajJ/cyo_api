@@ -27,7 +27,7 @@ def register(request: Request, user: UserCreate, response: Response, db: Session
     while db.query(User).filter(User.username == username).first():
         username = f"{base_username}_{counter}"
         counter += 1
-    
+    print("password is", user.password)
     hashed_password = get_password_hash(user.password)
     new_user = User(
         email=user.email,
@@ -43,9 +43,8 @@ def register(request: Request, user: UserCreate, response: Response, db: Session
     # Auto login
     access_token = create_access_token(data={"sub": str(new_user.id)})
     refresh_token = create_refresh_token(data={"sub": str(new_user.id)})
-    ip_address = request.client.host if request.client else "unknown"
     # Store refresh token
-    db_refresh = RefreshToken(token=refresh_token, user_id=new_user.id, ip_address=ip_address, expires_at=datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days))
+    db_refresh = RefreshToken(token=refresh_token, user_id=new_user.id, expires_at=datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days))
     db.add(db_refresh)
     db.commit()
     # Set refresh token as cookie
@@ -63,7 +62,7 @@ def login(request: Request, response: Response, form_data: OAuth2PasswordRequest
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect username/email or password")
     
-    ip_address = request.client.host if request.client else "unknown"
+    # Store refresh token
     
     # Check active refresh tokens for this user (not blacklisted and not expired)
     now = datetime.now(timezone.utc)
@@ -82,7 +81,7 @@ def login(request: Request, response: Response, form_data: OAuth2PasswordRequest
     access_token = create_access_token(data={"sub": str(user.id)})
     refresh_token = create_refresh_token(data={"sub": str(user.id)})
     # Store refresh token
-    db_refresh = RefreshToken(token=refresh_token, user_id=user.id, ip_address=ip_address, expires_at=now + timedelta(days=settings.refresh_token_expire_days))
+    db_refresh = RefreshToken(token=refresh_token, user_id=user.id, expires_at=now + timedelta(days=settings.refresh_token_expire_days))
     db.add(db_refresh)
     db.commit()
     # Set refresh token as cookie
