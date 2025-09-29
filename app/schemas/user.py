@@ -26,6 +26,9 @@ class UserResponse(BaseModel):
     linkedin_url: Optional[str] = None
     portfolio_url: Optional[str] = None
     interests: Optional[list[str]] = None
+    subscribed: bool = False
+    relationship_status: Optional[str] = None
+    profile_visibility: str = "public"
 
 class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
@@ -34,6 +37,9 @@ class UserUpdate(BaseModel):
     mobile_number: Optional[str] = None
     is_active: Optional[bool] = None
     interests: Optional[list[str]] = None
+    subscribed: Optional[bool] = None
+    relationship_status: Optional[str] = None
+    profile_visibility: Optional[str] = None
 
 
 class InterestsUpdate(BaseModel):

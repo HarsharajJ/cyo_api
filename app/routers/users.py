@@ -11,7 +11,7 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 def save_image(file: UploadFile, path: str):
     # TODO: save the file to the path
-    pass
+    return path
 
 
 @router.get("/profile", response_model=UserResponse)
@@ -54,8 +54,8 @@ def complete_profile(
     if profile_picture:
         filename = profile_picture.filename
         path = f"uploads/{filename}"
-        save_image(profile_picture, path)
-        current_user.profile_picture_url = path
+        new_path = save_image(profile_picture, path)
+        current_user.profile_picture_url = new_path
 
     # Update other optional profile fields
     if payload.bio is not None:

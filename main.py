@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from app.database import engine, Base
-from app.routers import auth, users
+from app.routers import auth, users, events
 from app.config import settings
 
 # Create database tables
@@ -16,6 +16,7 @@ app = FastAPI(
 # Include routers
 app.include_router(auth.router)
 app.include_router(users.router)
+app.include_router(events.router)
 
 @app.get("/")
 def root():
