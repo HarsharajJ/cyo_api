@@ -26,3 +26,11 @@ class EventResponse(BaseModel):
     max_attendees: int
     category: str
     host_id: int
+
+class JoinEventRequest(BaseModel):
+    event_id: int
+
+class JoinEventResponse(BaseModel):
+    message: str
+    event_id: int
+    user_id: int

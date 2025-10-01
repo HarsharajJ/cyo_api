@@ -20,3 +20,4 @@ class Event(Base):
     host_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"))
     
     host = relationship("User", back_populates="events")
+    participants = relationship("User", secondary="event_participants", back_populates="joined_events")

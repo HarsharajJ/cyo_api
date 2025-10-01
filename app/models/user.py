@@ -27,3 +27,4 @@ class User(Base):
     relationship_status: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     profile_visibility: Mapped[str] = mapped_column(String, default="public")
     events: Mapped[list["Event"]] = relationship("Event", back_populates="host")
+    joined_events: Mapped[list["Event"]] = relationship("Event", secondary="event_participants", back_populates="participants")

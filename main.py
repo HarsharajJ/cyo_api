@@ -2,15 +2,25 @@ from fastapi import FastAPI
 from app.database import engine, Base
 from app.routers import auth, users, events
 from app.config import settings
+from app.utils.pincode_initializer import initialize_pincodes
+from contextlib import asynccontextmanager
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
-
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup code
+    initialize_pincodes()
+    yield
+    # Shutdown code (if needed)
+    # cleanup_resources()
+    
 app = FastAPI(
     title="CYO Backend API",
     description="Production-ready authentication API with JWT",
     version="1.0.0",
-    debug=settings.debug
+    debug=settings.debug,
+    lifespan=lifespan
 )
 
 # Include routers
