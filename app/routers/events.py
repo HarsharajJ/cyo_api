@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.event import Event
-from app.schemas.event import EventCreate, EventResponse, JoinEventRequest, JoinEventResponse
+from app.schemas.event import EventCreate, EventResponse, JoinEventRequest, JoinEventResponse, EventDetailResponse, HostInfo
 from app.dependencies.auth import get_current_user
 from app.models.user import User
 from typing import Optional
@@ -111,6 +111,39 @@ def get_recommended_events(
     # Query events where category is in user's interests
     events = db.query(Event).filter(Event.category.in_(current_user.interests)).all()
     return events
+
+@router.get("/event/{event_id}", response_model=EventDetailResponse)
+def get_event_details(
+    event_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # Query event with host information
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    
+    # Create host info
+    host_info = HostInfo(
+        profile_picture_url=event.host.profile_picture_url,
+        full_name=event.host.full_name,
+        username=event.host.username
+    )
+    
+    # Return event details with host info
+    return EventDetailResponse(
+        event_photo=event.event_photo,
+        event_title=event.event_title,
+        event_description=event.event_description,
+        event_location=event.event_location,
+        pincode=event.pincode,
+        whatsapp_group_link=event.whatsapp_group_link,
+        date=event.date,
+        time=event.time,
+        max_attendees=event.max_attendees,
+        category=event.category,
+        host=host_info
+    )
 
 @router.get("/search_events", response_model=list[EventResponse])
 def search_events(
