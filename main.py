@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base
 from app.routers import auth, users, events
 from app.config import settings
@@ -21,6 +22,15 @@ app = FastAPI(
     version="1.0.0",
     debug=settings.debug,
     lifespan=lifespan
+)
+
+# CORS middleware - Allow all origins
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
 )
 
 # Include routers
