@@ -24,10 +24,18 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# List of allowed origins
+origins = [
+    "http://localhost:8080",
+    "http://localhost:8081",
+    # Add your Vercel frontend URL here once it's deployed
+    # Example: "https://your-project-name.vercel.app"
+]
+
 # CORS middleware - Allow all origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
