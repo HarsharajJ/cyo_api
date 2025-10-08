@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base
-from app.routers import auth, users, events
+from app.routers import auth, users, events, admin
 from app.config import settings
 from app.utils.pincode_initializer import initialize_pincodes
 from contextlib import asynccontextmanager
@@ -45,6 +45,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(events.router)
+app.include_router(admin.router)
 
 @app.get("/")
 def root():

@@ -1,1 +1,1 @@
-from . import auth, users, events
+from . import auth, users, events, admin

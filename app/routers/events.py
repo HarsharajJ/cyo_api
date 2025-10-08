@@ -6,6 +6,7 @@ from app.schemas.event import EventCreate, EventResponse, JoinEventRequest, Join
 from app.dependencies.auth import get_current_user
 from app.models.user import User
 from typing import Optional
+from datetime import date, time
 
 router = APIRouter(prefix="/events", tags=["events"])
 
@@ -21,31 +22,30 @@ def create_event(
     event_location: str = Form(...),
     pincode: str = Form(...),
     whatsapp_group_link: Optional[str] = Form(None),
-    date: str = Form(...),
-    time: str = Form(...),
+    date: date = Form(...),
+    time: time = Form(...),
     max_attendees: int = Form(...),
     category: str = Form(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    # Create payload object for validation
-    from datetime import date, time
+    # Create payload object for validation (FastAPI will coerce form strings to date/time)
     payload = EventCreate(
         event_title=event_title,
         event_description=event_description,
         event_location=event_location,
         pincode=pincode,
         whatsapp_group_link=whatsapp_group_link,
-        date=date.fromisoformat(date),
-        time=time.fromisoformat(time),
+        date=date,
+        time=time,
         max_attendees=max_attendees,
         category=category,
     )
-
-    if payload.event_photo:
-        filename = payload.event_photo.filename
+    # Save uploaded image (use the form parameter `event_photo` passed to the endpoint)
+    if event_photo:
+        filename = event_photo.filename
         path = f"uploads/events/{current_user.id}_{payload.event_title.replace(' ', '_')}_{filename}"
-        event_photo_path = save_image(payload.event_photo, path)
+        event_photo_path = save_image(event_photo, path)
     else:
         event_photo_path = None
 

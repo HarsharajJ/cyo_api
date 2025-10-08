@@ -27,7 +27,6 @@ def register(request: Request, user: UserCreate, response: Response, db: Session
     while db.query(User).filter(User.username == username).first():
         username = f"{base_username}_{counter}"
         counter += 1
-    print("password is", user.password)
     hashed_password = get_password_hash(user.password)
     new_user = User(
         email=user.email,
