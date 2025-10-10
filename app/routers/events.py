@@ -7,16 +7,20 @@ from app.dependencies.auth import get_current_user
 from app.models.user import User
 from typing import Optional
 from datetime import date, time
+import time as _time
+import uuid as _uuid
+import re as _re
+from app.utils.pincode_initializer import save_image
 
 router = APIRouter(prefix="/events", tags=["events"])
 
-def save_image(file: UploadFile, path: str):
-    # TODO: save the file to the path
-    return path
 
 @router.post("/create_event", response_model=EventResponse)
 def create_event(
-    event_photo: Optional[UploadFile] = File(None),
+    # Accept either an UploadFile or an empty string from Swagger UI. FastAPI will
+    # supply a str when the multipart form field is present but empty. We accept
+    # Optional[UploadFile] and handle the str case at runtime.
+    event_photo: Optional[UploadFile] | Optional[str] = File(None),
     event_title: str = Form(...),
     event_description: str = Form(...),
     event_location: str = Form(...),
@@ -43,9 +47,24 @@ def create_event(
     )
     # Save uploaded image (use the form parameter `event_photo` passed to the endpoint)
     if event_photo:
-        filename = event_photo.filename
-        path = f"uploads/events/{current_user.id}_{payload.event_title.replace(' ', '_')}_{filename}"
-        event_photo_path = save_image(event_photo, path)
+        # create a safe, unique filename (no spaces) with timestamp+uuid
+        orig = event_photo.filename or "image"
+        # split extension
+        if "." in orig:
+            base, ext = orig.rsplit(".", 1)
+            ext = ext.lower()
+        else:
+            base, ext = orig, ""
+        safe_base = _re.sub(r"[^A-Za-z0-9]+", "-", base).strip("-").lower() or "img"
+        title_slug = _re.sub(r"[^A-Za-z0-9]+", "-", payload.event_title).strip("-").lower() or "event"
+        ts = int(_time.time() * 1000)
+        short = _uuid.uuid4().hex[:8]
+        safe_filename = f"{safe_base}_{ts}_{short}" + (f".{ext}" if ext else "")
+        path = f"events/{current_user.id}_{title_slug}_{safe_filename}"
+        try:
+            event_photo_path = save_image(event_photo, path)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to save event image: {e}")
     else:
         event_photo_path = None
 

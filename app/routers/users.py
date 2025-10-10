@@ -5,13 +5,15 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from app.database import get_db
 from typing import Optional
+from app.utils.pincode_initializer import save_image
+import time as _time
+import uuid as _uuid
+import re as _re
 
 router = APIRouter(prefix="/users", tags=["users"])
 
 
-def save_image(file: UploadFile, path: str):
-    # TODO: save the file to the path
-    return path
+# using shared save_image from app.utils.pincode_initializer
 
 
 @router.get("/profile", response_model=UserResponse)
@@ -52,10 +54,22 @@ def complete_profile(
 
     # Handle profile picture
     if profile_picture:
-        filename = profile_picture.filename
-        path = f"uploads/{filename}"
-        new_path = save_image(profile_picture, path)
-        current_user.profile_picture_url = new_path
+        orig = profile_picture.filename or "avatar"
+        if "." in orig:
+            base, ext = orig.rsplit(".", 1)
+            ext = ext.lower()
+        else:
+            base, ext = orig, ""
+        safe_base = _re.sub(r"[^A-Za-z0-9]+", "-", base).strip("-").lower() or "img"
+        ts = int(_time.time() * 1000)
+        short = _uuid.uuid4().hex[:8]
+        safe_filename = f"{safe_base}_{ts}_{short}" + (f".{ext}" if ext else "")
+        path = f"users/{current_user.id}_{safe_filename}"
+        try:
+            new_path = save_image(profile_picture, path)
+            current_user.profile_picture_url = new_path
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to save profile picture: {e}")
 
     # Update other optional profile fields
     if payload.bio is not None:

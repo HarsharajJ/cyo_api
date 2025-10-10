@@ -15,7 +15,7 @@ class EventCreate(BaseModel):
 
 class EventResponse(BaseModel):
     id: int
-    event_photo: str
+    event_photo: Optional[str] = None
     event_title: str
     event_description: str
     event_location: str
@@ -33,7 +33,7 @@ class HostInfo(BaseModel):
     username: str
 
 class EventDetailResponse(BaseModel):
-    event_photo: str
+    event_photo: Optional[str] = None
     event_title: str
     event_description: str
     event_location: str

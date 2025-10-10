@@ -56,6 +56,10 @@ The API will be available at `http://localhost:8000`
 - `POST /auth/refresh` - Refresh access token
 - `POST /auth/logout` - Logout user
 
+# File server
+```bash
+docker run -d -p 4443:4443 -v /tmp/gcs:/data fsouza/fake-gcs-server -scheme http
+```
 ### Users
 - `GET /users/profile` - Get user profile (protected)
 

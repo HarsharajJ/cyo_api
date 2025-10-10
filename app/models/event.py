@@ -7,7 +7,7 @@ from app.database import Base
 class Event(Base):
     __tablename__ = "events"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    event_photo: Mapped[str] = mapped_column(String)
+    event_photo: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     event_title: Mapped[str] = mapped_column(String)
     event_description: Mapped[str] = mapped_column(Text)
     event_location: Mapped[str] = mapped_column(String)

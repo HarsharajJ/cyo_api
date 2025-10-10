@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base
 from app.routers import auth, users, events, admin
 from app.config import settings
-from app.utils.pincode_initializer import initialize_pincodes
+from app.utils.pincode_initializer import initialize_pincodes, check_storage_connection_and_ensure_bucket
 from contextlib import asynccontextmanager
 
 # Create database tables
@@ -11,7 +11,14 @@ Base.metadata.create_all(bind=engine)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup code
+    # initialize pincodes CSV -> DB
     initialize_pincodes()
+    # ensure storage connectivity and bucket exists (reads GCS_BUCKET_NAME and STORAGE_EMULATOR_HOST from env)
+    try:
+        check_storage_connection_and_ensure_bucket()
+    except Exception as e:
+        # If storage check fails, raise so the app doesn't start silently broken
+        raise
     yield
     # Shutdown code (if needed)
     # cleanup_resources()
