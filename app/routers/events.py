@@ -170,10 +170,9 @@ def search_events(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    # Fuzzy search by event title, exclude user's own hosted events
+    # Fuzzy search by event title
     events = db.query(Event).filter(
         Event.event_title.ilike(f"%{query}%"),
-        Event.host_id != current_user.id
     ).all()
     return events
 
@@ -195,4 +194,17 @@ def get_my_hosted_events(
 ):
     # Get events the user has hosted
     events = db.query(Event).filter(Event.host_id == current_user.id).all()
+    return events
+
+@router.get("/{category}", response_model=list[EventResponse])
+def get_events_by_category(
+    category: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return all events matching the given category (case-insensitive)."""
+    if not category:
+        return []
+    # Use case-insensitive matching
+    events = db.query(Event).filter(Event.category.ilike(category)).all()
     return events

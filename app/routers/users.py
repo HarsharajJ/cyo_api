@@ -100,3 +100,105 @@ def update_interests(
     db.commit()
     db.refresh(current_user)
     return current_user
+
+
+@router.put("/edit_profile", response_model=UserResponse)
+def edit_profile(
+    # Accept either an UploadFile or an empty string from Swagger UI
+    profile_picture: Optional[UploadFile] = File(None),
+    email: Optional[str] = Form(None),
+    full_name: Optional[str] = Form(None),
+    pincode: Optional[str] = Form(None),
+    mobile_number: Optional[str] = Form(None),
+    is_active: Optional[bool] = Form(None),
+    interests: Optional[str] = Form(None),
+    subscribed: Optional[bool] = Form(None),
+    relationship_status: Optional[str] = Form(None),
+    profile_visibility: Optional[str] = Form(None),
+    bio: Optional[str] = Form(None),
+    instagram_url: Optional[str] = Form(None),
+    twitter_url: Optional[str] = Form(None),
+    linkedin_url: Optional[str] = Form(None),
+    portfolio_url: Optional[str] = Form(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update the current user's profile.
+
+    All fields are optional. Username and password are NOT updatable here.
+    `profile_picture` accepts an UploadFile or an empty string (swagger quirk).
+    `interests` may be JSON array string (e.g. '["a","b"]') or comma-separated.
+    """
+    import json
+
+    # Email uniqueness check
+    if email and email != current_user.email:
+        existing = db.query(User).filter(User.email == email).first()
+        if existing and existing.id != current_user.id:
+            raise HTTPException(status_code=400, detail="Email already in use")
+        current_user.email = email
+
+    # Update simple scalar fields
+    if full_name is not None:
+        current_user.full_name = full_name
+    if pincode is not None:
+        current_user.pincode = pincode
+    if mobile_number is not None:
+        current_user.mobile_number = mobile_number
+    if is_active is not None:
+        current_user.is_active = is_active
+    if subscribed is not None:
+        current_user.subscribed = subscribed
+    if relationship_status is not None:
+        current_user.relationship_status = relationship_status
+    if profile_visibility is not None:
+        current_user.profile_visibility = profile_visibility
+
+    # Update profile links / bio
+    if bio is not None:
+        current_user.bio = bio
+    if instagram_url is not None:
+        current_user.instagram_url = instagram_url
+    if twitter_url is not None:
+        current_user.twitter_url = twitter_url
+    if linkedin_url is not None:
+        current_user.linkedin_url = linkedin_url
+    if portfolio_url is not None:
+        current_user.portfolio_url = portfolio_url
+
+    # Parse interests
+    if interests is not None:
+        parsed = None
+        # try JSON first
+        try:
+            parsed = json.loads(interests)
+        except Exception:
+            # fallback to comma-separated
+            parsed = [s.strip() for s in (interests or "").split(",") if s.strip()]
+        # Ensure list type
+        if isinstance(parsed, list):
+            current_user.interests = parsed
+
+    # Handle profile picture upload
+    if profile_picture:
+        orig = getattr(profile_picture, 'filename', None) or "avatar"
+        if "." in orig:
+            base, ext = orig.rsplit(".", 1)
+            ext = ext.lower()
+        else:
+            base, ext = orig, ""
+        safe_base = _re.sub(r"[^A-Za-z0-9]+", "-", base).strip("-").lower() or "img"
+        ts = int(_time.time() * 1000)
+        short = _uuid.uuid4().hex[:8]
+        safe_filename = f"{safe_base}_{ts}_{short}" + (f".{ext}" if ext else "")
+        path = f"users/{current_user.id}_{safe_filename}"
+        try:
+            new_path = save_image(profile_picture, path)
+            current_user.profile_picture_url = new_path
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to save profile picture: {e}")
+
+    db.add(current_user)
+    db.commit()
+    db.refresh(current_user)
+    return current_user
