@@ -117,7 +117,7 @@ def update_interests(
 @router.put("/edit_profile", response_model=UserResponse)
 def edit_profile(
     # Accept either an UploadFile or an empty string from Swagger UI
-    profile_picture: Optional[UploadFile] = File(None),
+    profile_picture: Optional[UploadFile | str] = File(None),
     email: Optional[str] = Form(None),
     full_name: Optional[str] = Form(None),
     pincode: Optional[str] = Form(None),
@@ -193,22 +193,27 @@ def edit_profile(
 
     # Handle profile picture upload
     if profile_picture:
-        orig = getattr(profile_picture, 'filename', None) or "avatar"
-        if "." in orig:
-            base, ext = orig.rsplit(".", 1)
-            ext = ext.lower()
+        # Swagger may send an empty string for file fields; treat str as no-op
+        if isinstance(profile_picture, str):
+            # ignore empty string or direct URL strings here (no upload)
+            pass
         else:
-            base, ext = orig, ""
-        safe_base = _re.sub(r"[^A-Za-z0-9]+", "-", base).strip("-").lower() or "img"
-        ts = int(_time.time() * 1000)
-        short = _uuid.uuid4().hex[:8]
-        safe_filename = f"{safe_base}_{ts}_{short}" + (f".{ext}" if ext else "")
-        path = f"users/{current_user.id}_{safe_filename}"
-        try:
-            new_path = save_image(profile_picture, path)
-            current_user.profile_picture_url = new_path
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to save profile picture: {e}")
+            orig = getattr(profile_picture, 'filename', None) or "avatar"
+            if "." in orig:
+                base, ext = orig.rsplit(".", 1)
+                ext = ext.lower()
+            else:
+                base, ext = orig, ""
+            safe_base = _re.sub(r"[^A-Za-z0-9]+", "-", base).strip("-").lower() or "img"
+            ts = int(_time.time() * 1000)
+            short = _uuid.uuid4().hex[:8]
+            safe_filename = f"{safe_base}_{ts}_{short}" + (f".{ext}" if ext else "")
+            path = f"users/{current_user.id}_{safe_filename}"
+            try:
+                new_path = save_image(profile_picture, path)
+                current_user.profile_picture_url = new_path
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Failed to save profile picture: {e}")
 
     db.add(current_user)
     db.commit()
