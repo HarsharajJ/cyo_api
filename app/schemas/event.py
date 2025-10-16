@@ -32,6 +32,13 @@ class HostInfo(BaseModel):
     full_name: str
     username: str
 
+
+class ParticipantInfo(BaseModel):
+    id: int
+    profile_picture_url: Optional[str] = None
+    full_name: str
+    username: str
+
 class EventDetailResponse(BaseModel):
     event_photo: Optional[str] = None
     event_title: str
@@ -44,6 +51,7 @@ class EventDetailResponse(BaseModel):
     max_attendees: int
     category: str
     host: HostInfo
+    participants: Optional[list[ParticipantInfo]] = None
 
 class JoinEventRequest(BaseModel):
     event_id: int

@@ -14,3 +14,5 @@ wheels/
 .env
 .env.*
 .env
+
+*.db

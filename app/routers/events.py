@@ -149,7 +149,17 @@ def get_event_details(
         username=event.host.username
     )
     
-    # Return event details with host info
+    # Build participants info
+    participants = []
+    for u in event.participants:
+        participants.append({
+            "id": u.id,
+            "profile_picture_url": u.profile_picture_url,
+            "full_name": u.full_name,
+            "username": u.username,
+        })
+
+    # Return event details with host info and participants
     return EventDetailResponse(
         event_photo=event.event_photo,
         event_title=event.event_title,
@@ -161,7 +171,8 @@ def get_event_details(
         time=event.time,
         max_attendees=event.max_attendees,
         category=event.category,
-        host=host_info
+        host=host_info,
+        participants=participants,
     )
 
 @router.get("/search_events", response_model=list[EventResponse])
@@ -195,6 +206,83 @@ def get_my_hosted_events(
     # Get events the user has hosted
     events = db.query(Event).filter(Event.host_id == current_user.id).all()
     return events
+
+
+@router.put("/edit_event/{event_id}", response_model=EventResponse)
+def edit_event(
+    event_id: int,
+    # Accept either an UploadFile or an empty string from Swagger UI
+    event_photo: Optional[UploadFile] | Optional[str] = File(None),
+    event_title: Optional[str] = Form(None),
+    event_description: Optional[str] = Form(None),
+    event_location: Optional[str] = Form(None),
+    pincode: Optional[str] = Form(None),
+    whatsapp_group_link: Optional[str] = Form(None),
+    date: Optional[date] = Form(None),
+    time: Optional[time] = Form(None),
+    max_attendees: Optional[int] = Form(None),
+    category: Optional[str] = Form(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # Fetch event
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    # Only host can edit
+    if event.host_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the host can edit this event")
+
+    # Handle photo upload
+    if event_photo:
+        orig = getattr(event_photo, 'filename', None) or "image"
+        if "." in orig:
+            base, ext = orig.rsplit(".", 1)
+            ext = ext.lower()
+        else:
+            base, ext = orig, ""
+        safe_base = _re.sub(r"[^A-Za-z0-9]+", "-", base).strip("-").lower() or "img"
+        title_slug = _re.sub(r"[^A-Za-z0-9]+", "-", (event_title or event.event_title)).strip("-").lower() or "event"
+        ts = int(_time.time() * 1000)
+        short = _uuid.uuid4().hex[:8]
+        safe_filename = f"{safe_base}_{ts}_{short}" + (f".{ext}" if ext else "")
+        path = f"events/{current_user.id}_{title_slug}_{safe_filename}"
+        try:
+            event_photo_path = save_image(event_photo, path)
+            event.event_photo = event_photo_path
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to save event image: {e}")
+
+    # Update fields if provided
+    if event_title is not None:
+        event.event_title = event_title
+    if event_description is not None:
+        event.event_description = event_description
+    if event_location is not None:
+        event.event_location = event_location
+    if pincode is not None:
+        event.pincode = pincode
+    if whatsapp_group_link is not None:
+        event.whatsapp_group_link = whatsapp_group_link
+    if date is not None:
+        event.date = date
+    if time is not None:
+        event.time = time
+    if category is not None:
+        event.category = category
+
+    # max_attendees change: ensure we don't set it below current participants
+    if max_attendees is not None:
+        current_participants = len(event.participants) if event.participants is not None else 0
+        if max_attendees < current_participants:
+            raise HTTPException(status_code=400, detail="max_attendees cannot be less than current number of participants")
+        event.max_attendees = max_attendees
+
+    db.add(event)
+    db.commit()
+    db.refresh(event)
+    return event
 
 @router.get("/{category}", response_model=list[EventResponse])
 def get_events_by_category(
