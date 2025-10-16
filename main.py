@@ -1,11 +1,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base
-from app.routers import auth, users, events, admin
+from app.routers import auth, users, events, admin, memories
 from app.config import settings
 from app.utils.pincode_initializer import initialize_pincodes, check_storage_connection_and_ensure_bucket
 from contextlib import asynccontextmanager
 from scripts.seed_data import seed_database
+from app.database import SessionLocal
+from app.models.user import User
 # Create database tables
 Base.metadata.create_all(bind=engine)
 @asynccontextmanager
@@ -14,7 +16,21 @@ async def lifespan(app: FastAPI):
     # initialize pincodes CSV -> DB
     initialize_pincodes()
     # ensure storage connectivity and bucket exists (reads GCS_BUCKET_NAME and STORAGE_EMULATOR_HOST from env)
-    seed_database()
+    # Only seed the database if there are no users present
+    try:
+        db = SessionLocal()
+        user_count = db.query(User).count()
+    except Exception:
+        user_count = 0
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
+
+    if user_count == 0:
+        seed_database()
+    # ensure storage connectivity and bucket exists (reads GCS_BUCKET_NAME and STORAGE_EMULATOR_HOST from env)
     try:
         check_storage_connection_and_ensure_bucket()
     except Exception as e:
@@ -54,6 +70,7 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(events.router)
 app.include_router(admin.router)
+app.include_router(memories.router)
 
 @app.get("/")
 def root():

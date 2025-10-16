@@ -1,8 +1,12 @@
 from sqlalchemy import String, DateTime, Boolean, Integer, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 from app.database import Base
+
+if TYPE_CHECKING:
+    from .event import Event
+    from .memory import Memory
 
 class User(Base):
     __tablename__ = "users"
@@ -28,3 +32,4 @@ class User(Base):
     profile_visibility: Mapped[str] = mapped_column(String, default="public")
     events: Mapped[list["Event"]] = relationship("Event", back_populates="host")
     joined_events: Mapped[list["Event"]] = relationship("Event", secondary="event_participants", back_populates="participants")
+    memories: Mapped[list["Memory"]] = relationship("Memory", back_populates="user")

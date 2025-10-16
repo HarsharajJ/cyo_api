@@ -21,6 +21,18 @@ def get_profile(current_user: User = Depends(get_current_user)):
     return current_user
 
 
+@router.get("/{user_id}", response_model=UserResponse)
+def get_user_by_id(user_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Public endpoint: return a user's full profile by their numeric ID.
+
+    Returns 404 if the user does not exist.
+    """
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
 @router.post("/complete-profile", response_model=UserResponse)
 def complete_profile(
     profile_picture: Optional[UploadFile] = File(None),

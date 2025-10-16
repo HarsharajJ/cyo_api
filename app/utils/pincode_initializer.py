@@ -52,9 +52,11 @@ def initialize_pincodes():
 
                 pincode_objects = [
                     Pincode(
-                        zipcode=str(row['Zipcode']),
                         district=row['District'],
-                        state_name=row['StateName']
+                        state_name=row['StateName'],
+                        latitude=float(row['Latitude']),
+                        longitude=float(row['Longitude']),
+                        pincode=str(row['Pincode'])
                     )
                     for _, row in batch.iterrows()
                 ]
@@ -184,5 +186,76 @@ def save_image(file, path: str, bucket_name: Optional[str] = None) -> Optional[s
         return blob.public_url
     except Exception as e:
         raise RuntimeError(f"Cloud upload failed: {e}")
+
+
+def save_images(files, base_path: str, bucket_name: Optional[str] = None) -> list[str]:
+    """
+    Save multiple UploadFiles to cloud storage efficiently.
+
+    Args:
+        files: List of UploadFile objects or single UploadFile
+        base_path: Base path template (should include placeholders for indexing)
+        bucket_name: Optional bucket name override
+
+    Returns:
+        List of URLs/paths for the uploaded files
+    """
+    # Handle single file case
+    if not isinstance(files, list):
+        files = [files]
+
+    # Filter out None/empty files
+    valid_files = []
+    for file in files:
+        if not file:
+            continue
+        if isinstance(file, str) and file.strip() == "":
+            continue
+        if hasattr(file, 'filename') and not getattr(file, 'filename', None):
+            continue
+        valid_files.append(file)
+
+    if not valid_files:
+        return []
+
+    # Cloud upload only. If storage not configured or upload fails, raise.
+    if storage is None:
+        raise RuntimeError("google-cloud-storage not installed. Install it and try again.")
+
+    if not (bucket_name or os.environ.get("GCS_BUCKET_NAME") or settings.gcs_bucket_name):
+        raise RuntimeError("GCS bucket not configured. Set GCS_BUCKET_NAME in .env or pass bucket_name")
+
+    # Ensure emulator host from settings is available to client
+    emulator_host = os.environ.get("STORAGE_EMULATOR_HOST") or settings.storage_emulator_host
+    if emulator_host:
+        os.environ["STORAGE_EMULATOR_HOST"] = emulator_host
+
+    try:
+        bucket = get_storage_bucket(bucket_name)
+        uploaded_urls = []
+
+        for i, file in enumerate(valid_files):
+            # Create unique path for each file
+            if "{i}" in base_path:
+                path = base_path.format(i=i)
+            else:
+                # If no placeholder, append index
+                path = f"{base_path}_{i}"
+
+            normalized = path.lstrip("/")
+            blob = bucket.blob(normalized)
+            file.file.seek(0)
+            blob.upload_from_file(file.file, rewind=True)
+
+            emulator = os.environ.get("STORAGE_EMULATOR_HOST")
+            if emulator:
+                url = f"{emulator}/storage/v1/b/{bucket.name}/o/{blob.name}?alt=media"
+            else:
+                url = blob.public_url
+            uploaded_urls.append(url)
+
+        return uploaded_urls
+    except Exception as e:
+        raise RuntimeError(f"Batch cloud upload failed: {e}")
 
 

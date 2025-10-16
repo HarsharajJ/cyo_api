@@ -5,12 +5,14 @@ from app.models.event import Event
 from app.schemas.event import EventCreate, EventResponse, JoinEventRequest, JoinEventResponse, EventDetailResponse, HostInfo
 from app.dependencies.auth import get_current_user
 from app.models.user import User
+from app.models.pincode import Pincode
 from typing import Optional
 from datetime import date, time
 import time as _time
 import uuid as _uuid
 import re as _re
 from app.utils.pincode_initializer import save_image
+import math
 
 router = APIRouter(prefix="/events", tags=["events"])
 
@@ -123,13 +125,107 @@ def join_event(
 def get_recommended_events(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    page: int = 1,
+    size: int = 20,
 ):
     if not current_user.interests:
         return []
-    
-    # Query events where category is in user's interests
-    events = db.query(Event).filter(Event.category.in_(current_user.interests)).all()
-    return events
+
+    # Validate pagination
+    page = max(1, page)
+    size = max(1, min(200, size))
+
+    # Use a bounding-box prefilter to limit candidate pincodes/events before
+    # calculating exact distances. This avoids loading all matching events into
+    # memory when a user's interests match many events.
+
+    # DB query for events matching user's interests (do not .all() here)
+    events_query = db.query(Event).filter(Event.category.in_(current_user.interests))
+
+    # Get user's location from their pincode
+    user_pincode_data = db.query(Pincode).filter(Pincode.pincode == current_user.pincode).first()
+    if not user_pincode_data:
+        # Fallback: do DB-level pagination (no distance sorting possible)
+        return events_query.offset((page - 1) * size).limit(size).all()
+
+    user_lat, user_lon = user_pincode_data.latitude, user_pincode_data.longitude
+
+    # Bounding-box approximation to prefilter nearby pincodes (in degrees)
+    max_distance_km = 70.0
+    # Approx: 1 deg latitude ~ 111 km
+    lat_delta = max_distance_km / 111.0
+    # Lon delta adjusted by latitude
+    lon_delta = max_distance_km / (111.320 * max(0.000001, math.cos(math.radians(user_lat))))
+
+    # Query pincodes within the bounding box
+    nearby_pincodes_q = db.query(Pincode.pincode).filter(
+        Pincode.latitude.between(user_lat - lat_delta, user_lat + lat_delta),
+        Pincode.longitude.between(user_lon - lon_delta, user_lon + lon_delta),
+    )
+    nearby_pincodes = [r.pincode for r in nearby_pincodes_q.all()]
+
+    if not nearby_pincodes:
+        return events_query.offset((page - 1) * size).limit(size).all()
+
+    # Fetch candidate events whose pincode is in the nearby pincodes set.
+    # Cap the number of candidates to avoid memory spikes.
+    CANDIDATE_LIMIT = 5000
+    candidate_events = events_query.filter(Event.pincode.in_(nearby_pincodes)).limit(CANDIDATE_LIMIT).all()
+    if not candidate_events:
+        return []
+
+    # Convert candidate events to DataFrame for distance calculation
+    import pandas as pd
+    events_data = []
+    for event in candidate_events:
+        events_data.append({
+            'id': event.id,
+            'pincode': str(event.pincode),
+            'event_photo': event.event_photo,
+            'event_title': event.event_title,
+            'event_description': event.event_description,
+            'event_location': event.event_location,
+            'whatsapp_group_link': event.whatsapp_group_link,
+            'date': event.date,
+            'time': event.time,
+            'max_attendees': event.max_attendees,
+            'category': event.category,
+            'host_id': event.host_id
+        })
+
+    events_df = pd.DataFrame(events_data)
+
+    # Get pincode lat/lon for only the pincodes present in candidate events
+    unique_pincodes = events_df['pincode'].unique().tolist()
+    pincodes_data = db.query(Pincode).filter(Pincode.pincode.in_(unique_pincodes)).all()
+
+    pincodes_list = []
+    for pincode in pincodes_data:
+        pincodes_list.append({'pincode': str(pincode.pincode), 'latitude': pincode.latitude, 'longitude': pincode.longitude})
+
+    pincodes_df = pd.DataFrame(pincodes_list)
+
+    # Sort events by distance using the utility function
+    from app.utils.distance import sort_events_by_distance
+    sorted_events_df = sort_events_by_distance(events_df, pincodes_df, user_lat, user_lon, max_distance_km)
+
+    # Apply pagination to the sorted results
+    start_idx = (page - 1) * size
+    end_idx = start_idx + size
+    paginated_events_df = sorted_events_df.iloc[start_idx:end_idx]
+
+    # Convert back to Event objects for response
+    paginated_event_ids = paginated_events_df['id'].tolist()
+    if not paginated_event_ids:
+        return []
+
+    paginated_events = db.query(Event).filter(Event.id.in_(paginated_event_ids)).all()
+
+    # Preserve DataFrame order when returning objects
+    event_id_to_obj = {event.id: event for event in paginated_events}
+    sorted_paginated_events = [event_id_to_obj[eid] for eid in paginated_event_ids if eid in event_id_to_obj]
+
+    return sorted_paginated_events
 
 @router.get("/event/{event_id}", response_model=EventDetailResponse)
 def get_event_details(
@@ -180,31 +276,46 @@ def search_events(
     query: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    page: int = 1,
+    size: int = 20,
 ):
     # Fuzzy search by event title
-    events = db.query(Event).filter(
+    page = max(1, page)
+    size = max(1, min(200, size))
+    q = db.query(Event).filter(
         Event.event_title.ilike(f"%{query}%"),
-    ).all()
+    )
+    events = q.offset((page - 1) * size).limit(size).all()
     return events
 
 @router.get("/my_joined_events", response_model=list[EventResponse])
 def get_my_joined_events(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    page: int = 1,
+    size: int = 20,
 ):
     # Get events the user has joined
-    events = db.query(Event).filter(
+    page = max(1, page)
+    size = max(1, min(200, size))
+    q = db.query(Event).filter(
         Event.participants.any(User.id == current_user.id)
-    ).all()
+    )
+    events = q.offset((page - 1) * size).limit(size).all()
     return events
 
 @router.get("/my_hosted_events", response_model=list[EventResponse])
 def get_my_hosted_events(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    page: int = 1,
+    size: int = 20,
 ):
     # Get events the user has hosted
-    events = db.query(Event).filter(Event.host_id == current_user.id).all()
+    page = max(1, page)
+    size = max(1, min(200, size))
+    q = db.query(Event).filter(Event.host_id == current_user.id)
+    events = q.offset((page - 1) * size).limit(size).all()
     return events
 
 
@@ -289,10 +400,25 @@ def get_events_by_category(
     category: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    page: int = 1,
+    size: int = 20,
 ):
-    """Return all events matching the given category (case-insensitive)."""
+    """Return events matching the given category (case-insensitive).
+
+    Special case: if `category` equals "all" (case-insensitive), return events
+    from all categories paginated.
+    """
     if not category:
         return []
-    # Use case-insensitive matching
-    events = db.query(Event).filter(Event.category.ilike(category)).all()
+
+    page = max(1, page)
+    size = max(1, min(200, size))
+
+    if category.strip().lower() == "all":
+        q = db.query(Event)
+    else:
+        # Case-insensitive match for the provided category
+        q = db.query(Event).filter(Event.category.ilike(category))
+
+    events = q.offset((page - 1) * size).limit(size).all()
     return events
