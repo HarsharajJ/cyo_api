@@ -5,7 +5,7 @@ from app.routers import auth, users, events, admin
 from app.config import settings
 from app.utils.pincode_initializer import initialize_pincodes, check_storage_connection_and_ensure_bucket
 from contextlib import asynccontextmanager
-
+from scripts.seed_data import seed_database
 # Create database tables
 Base.metadata.create_all(bind=engine)
 @asynccontextmanager
@@ -14,6 +14,7 @@ async def lifespan(app: FastAPI):
     # initialize pincodes CSV -> DB
     initialize_pincodes()
     # ensure storage connectivity and bucket exists (reads GCS_BUCKET_NAME and STORAGE_EMULATOR_HOST from env)
+    seed_database()
     try:
         check_storage_connection_and_ensure_bucket()
     except Exception as e:
