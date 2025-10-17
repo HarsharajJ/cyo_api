@@ -1,11 +1,11 @@
-from app.schemas.user import UserResponse, InterestsUpdate, CompleteProfile
+from app.schemas.user import UserResponse, InterestsUpdate, CompleteProfile, Location
 from app.dependencies.auth import get_current_user
 from app.models.user import User
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from app.database import get_db
 from typing import Optional
-from app.utils.pincode_initializer import save_image
+from app.utils.pincode_initializer import save_image, get_location_from_pincode
 import time as _time
 import uuid as _uuid
 import re as _re
@@ -16,9 +16,38 @@ router = APIRouter(prefix="/users", tags=["users"])
 # using shared save_image from app.utils.pincode_initializer
 
 
+def user_to_response(user: User) -> dict:
+    """Convert User model to UserResponse dict with location."""
+    location_data = get_location_from_pincode(user.pincode)
+    if not location_data:
+        location_data = {"district": "Unknown", "state_name": "Unknown"}
+    
+    return {
+        "id": user.id,
+        "email": user.email,
+        "username": user.username,
+        "full_name": user.full_name,
+        "location": Location(**location_data),
+        "mobile_number": user.mobile_number,
+        "is_active": user.is_active,
+        "created_at": user.created_at,
+        "profile_picture_url": user.profile_picture_url,
+        "bio": user.bio,
+        "instagram_url": user.instagram_url,
+        "twitter_url": user.twitter_url,
+        "linkedin_url": user.linkedin_url,
+        "portfolio_url": user.portfolio_url,
+        "snapchat_url": user.snapchat_url,
+        "interests": user.interests,
+        "subscribed": user.subscribed,
+        "relationship_status": user.relationship_status,
+        "profile_visibility": user.profile_visibility,
+    }
+
+
 @router.get("/profile", response_model=UserResponse)
 def get_profile(current_user: User = Depends(get_current_user)):
-    return current_user
+    return user_to_response(current_user)
 
 
 @router.get("/{user_id}", response_model=UserResponse)
@@ -30,7 +59,7 @@ def get_user_by_id(user_id: int, current_user: User = Depends(get_current_user),
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    return user
+    return user_to_response(user)
 
 
 @router.post("/complete-profile", response_model=UserResponse)
@@ -42,6 +71,7 @@ def complete_profile(
     twitter_url: Optional[str] = Form(None),
     linkedin_url: Optional[str] = Form(None),
     portfolio_url: Optional[str] = Form(None),
+    snapchat_url: Optional[str] = Form(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -54,6 +84,7 @@ def complete_profile(
         twitter_url=twitter_url,
         linkedin_url=linkedin_url,
         portfolio_url=portfolio_url,
+        snapchat_url=snapchat_url,
     )
 
     # If username provided, ensure it's unique (or it's the same as current)
@@ -94,11 +125,13 @@ def complete_profile(
         current_user.linkedin_url = payload.linkedin_url
     if payload.portfolio_url is not None:
         current_user.portfolio_url = payload.portfolio_url
+    if payload.snapchat_url is not None:
+        current_user.snapchat_url = payload.snapchat_url
 
     db.add(current_user)
     db.commit()
     db.refresh(current_user)
-    return current_user
+    return user_to_response(current_user)
 
 
 @router.put("/interests", response_model=UserResponse)
@@ -111,7 +144,7 @@ def update_interests(
     db.add(current_user)
     db.commit()
     db.refresh(current_user)
-    return current_user
+    return user_to_response(current_user)
 
 
 @router.put("/edit_profile", response_model=UserResponse)
@@ -132,6 +165,7 @@ def edit_profile(
     twitter_url: Optional[str] = Form(None),
     linkedin_url: Optional[str] = Form(None),
     portfolio_url: Optional[str] = Form(None),
+    snapchat_url: Optional[str] = Form(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -177,6 +211,8 @@ def edit_profile(
         current_user.linkedin_url = linkedin_url
     if portfolio_url is not None:
         current_user.portfolio_url = portfolio_url
+    if snapchat_url is not None:
+        current_user.snapchat_url = snapchat_url
 
     # Parse interests
     if interests is not None:
@@ -218,4 +254,4 @@ def edit_profile(
     db.add(current_user)
     db.commit()
     db.refresh(current_user)
-    return current_user
+    return user_to_response(current_user)

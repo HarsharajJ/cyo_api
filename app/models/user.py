@@ -26,6 +26,7 @@ class User(Base):
     twitter_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     linkedin_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     portfolio_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    snapchat_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     interests: Mapped[Optional[list[str]]] = mapped_column(JSON, nullable=True)
     subscribed: Mapped[bool] = mapped_column(Boolean, default=False)
     relationship_status: Mapped[Optional[str]] = mapped_column(String, nullable=True)

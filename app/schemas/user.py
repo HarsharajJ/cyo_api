@@ -10,12 +10,16 @@ class UserCreate(BaseModel):
     pincode: str = Field(..., min_length=6, max_length=6)
     mobile_number: str = Field(default="+91", description="Mobile number with country code")
 
+class Location(BaseModel):
+    district: str
+    state_name: str
+
 class UserResponse(BaseModel):
     id: int
     email: str
     username: str
     full_name: str
-    pincode: str
+    location: Location
     mobile_number: str  
     is_active: bool
     created_at: datetime
@@ -25,6 +29,7 @@ class UserResponse(BaseModel):
     twitter_url: Optional[str] = None
     linkedin_url: Optional[str] = None
     portfolio_url: Optional[str] = None
+    snapchat_url: Optional[str] = None
     interests: Optional[list[str]] = None
     subscribed: bool = False
     relationship_status: Optional[str] = None
@@ -53,3 +58,4 @@ class CompleteProfile(BaseModel):
     twitter_url: Optional[str] = None
     linkedin_url: Optional[str] = None
     portfolio_url: Optional[str] = None
+    snapchat_url: Optional[str] = None

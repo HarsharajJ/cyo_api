@@ -259,3 +259,20 @@ def save_images(files, base_path: str, bucket_name: Optional[str] = None) -> lis
         raise RuntimeError(f"Batch cloud upload failed: {e}")
 
 
+def get_location_from_pincode(pincode: str) -> Optional[dict]:
+    """
+    Get district and state_name for a given pincode.
+    
+    Returns a dict with 'district' and 'state_name' keys, or None if not found.
+    """
+    db = SessionLocal()
+    try:
+        pincode_data = db.query(Pincode).filter(Pincode.pincode == pincode).first()
+        if pincode_data:
+            return {
+                "district": pincode_data.district,
+                "state_name": pincode_data.state_name
+            }
+        return None
+    finally:
+        db.close()
