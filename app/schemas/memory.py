@@ -19,3 +19,4 @@ class MemoryListResponse(BaseModel):
     total: int
     page: int
     size: int
+    total_pages: int

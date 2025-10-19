@@ -10,6 +10,7 @@ import time as _time
 import uuid as _uuid
 import re as _re
 from app.utils.pincode_initializer import save_images
+import math
 
 router = APIRouter(prefix="/memories", tags=["memories"])
 
@@ -71,6 +72,7 @@ def view_memories(
 
     query = db.query(Memory).filter(Memory.user_id == current_user.id)
     total = query.count()
+    total_pages = math.ceil(total / size)
     memories = query.order_by(Memory.created_at.desc()).offset((page - 1) * size).limit(size).all()
 
     # Convert SQLAlchemy objects to dictionaries for Pydantic
@@ -89,5 +91,6 @@ def view_memories(
         memories=memories_data,
         total=total,
         page=page,
-        size=size
+        size=size,
+        total_pages=total_pages
     )

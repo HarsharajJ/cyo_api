@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.event import Event
-from app.schemas.event import EventCreate, EventResponse, JoinEventRequest, JoinEventResponse, EventDetailResponse, HostInfo
+from app.schemas.event import EventCreate, EventResponse, JoinEventRequest, JoinEventResponse, EventDetailResponse, HostInfo, LeaveEventRequest, LeaveEventResponse, PaginatedEventResponse
 from app.dependencies.auth import get_current_user
 from app.models.user import User
 from app.models.pincode import Pincode
@@ -121,7 +121,36 @@ def join_event(
         user_id=current_user.id
     )
 
-@router.get("/recommended_events", response_model=list[EventResponse])
+@router.post("/leave_event", response_model=LeaveEventResponse)
+def leave_event(
+    payload: LeaveEventRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # Check if event exists
+    event = db.query(Event).filter(Event.id == payload.event_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    
+    # Check if user is the host
+    if event.host_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Host cannot leave their own event")
+    
+    # Check if user is joined
+    if current_user not in event.participants:
+        raise HTTPException(status_code=400, detail="User not joined this event")
+    
+    # Remove user from participants
+    event.participants.remove(current_user)
+    db.commit()
+    
+    return LeaveEventResponse(
+        message="Successfully left the event",
+        event_id=payload.event_id,
+        user_id=current_user.id
+    )
+
+@router.get("/recommended_events", response_model=PaginatedEventResponse)
 def get_recommended_events(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -140,7 +169,12 @@ def get_recommended_events(
     # memory when a user's interests match many events.
 
     # DB query for events matching user's interests (do not .all() here)
-    events_query = db.query(Event).filter(Event.category.in_(current_user.interests))
+    current_date = date.today()
+    events_query = db.query(Event).filter(
+        Event.category.in_(current_user.interests),
+        Event.host_id != current_user.id,
+        Event.date > current_date
+    )
 
     # Get user's location from their pincode
     user_pincode_data = db.query(Pincode).filter(Pincode.pincode == current_user.pincode).first()
@@ -172,7 +206,10 @@ def get_recommended_events(
     CANDIDATE_LIMIT = 5000
     candidate_events = events_query.filter(Event.pincode.in_(nearby_pincodes)).limit(CANDIDATE_LIMIT).all()
     if not candidate_events:
-        return []
+        return PaginatedEventResponse(events=[], total_pages=0)
+
+    total = len(candidate_events)
+    total_pages = math.ceil(total / size)
 
     # Convert candidate events to DataFrame for distance calculation
     import pandas as pd
@@ -225,7 +262,7 @@ def get_recommended_events(
     event_id_to_obj = {event.id: event for event in paginated_events}
     sorted_paginated_events = [event_id_to_obj[eid] for eid in paginated_event_ids if eid in event_id_to_obj]
 
-    return sorted_paginated_events
+    return PaginatedEventResponse(events=sorted_paginated_events, total_pages=total_pages)
 
 @router.get("/event/{event_id}", response_model=EventDetailResponse)
 def get_event_details(
@@ -271,7 +308,7 @@ def get_event_details(
         participants=participants,
     )
 
-@router.get("/search_events", response_model=list[EventResponse])
+@router.get("/search_events", response_model=PaginatedEventResponse)
 def search_events(
     query: str,
     current_user: User = Depends(get_current_user),
@@ -282,13 +319,17 @@ def search_events(
     # Fuzzy search by event title
     page = max(1, page)
     size = max(1, min(200, size))
+    current_date = date.today()
     q = db.query(Event).filter(
         Event.event_title.ilike(f"%{query}%"),
+        Event.date > current_date
     )
+    total = q.count()
+    total_pages = math.ceil(total / size)
     events = q.offset((page - 1) * size).limit(size).all()
-    return events
+    return PaginatedEventResponse(events=events, total_pages=total_pages)
 
-@router.get("/my_joined_events", response_model=list[EventResponse])
+@router.get("/my_joined_events", response_model=PaginatedEventResponse)
 def get_my_joined_events(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -301,10 +342,12 @@ def get_my_joined_events(
     q = db.query(Event).filter(
         Event.participants.any(User.id == current_user.id)
     )
+    total = q.count()
+    total_pages = math.ceil(total / size)
     events = q.offset((page - 1) * size).limit(size).all()
-    return events
+    return PaginatedEventResponse(events=events, total_pages=total_pages)
 
-@router.get("/my_hosted_events", response_model=list[EventResponse])
+@router.get("/my_hosted_events", response_model=PaginatedEventResponse)
 def get_my_hosted_events(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -315,8 +358,10 @@ def get_my_hosted_events(
     page = max(1, page)
     size = max(1, min(200, size))
     q = db.query(Event).filter(Event.host_id == current_user.id)
+    total = q.count()
+    total_pages = math.ceil(total / size)
     events = q.offset((page - 1) * size).limit(size).all()
-    return events
+    return PaginatedEventResponse(events=events, total_pages=total_pages)
 
 
 @router.put("/edit_event/{event_id}", response_model=EventResponse)
@@ -395,7 +440,7 @@ def edit_event(
     db.refresh(event)
     return event
 
-@router.get("/{category}", response_model=list[EventResponse])
+@router.get("/{category}", response_model=PaginatedEventResponse)
 def get_events_by_category(
     category: str,
     current_user: User = Depends(get_current_user),
@@ -409,16 +454,19 @@ def get_events_by_category(
     from all categories paginated.
     """
     if not category:
-        return []
+        return PaginatedEventResponse(events=[], total_pages=0)
 
     page = max(1, page)
     size = max(1, min(200, size))
+    current_date = date.today()
 
     if category.strip().lower() == "all":
-        q = db.query(Event)
+        q = db.query(Event).filter(Event.date > current_date)
     else:
         # Case-insensitive match for the provided category
-        q = db.query(Event).filter(Event.category.ilike(category))
+        q = db.query(Event).filter(Event.category.ilike(category), Event.date > current_date)
 
+    total = q.count()
+    total_pages = math.ceil(total / size)
     events = q.offset((page - 1) * size).limit(size).all()
-    return events
+    return PaginatedEventResponse(events=events, total_pages=total_pages)

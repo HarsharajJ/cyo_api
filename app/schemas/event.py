@@ -60,3 +60,15 @@ class JoinEventResponse(BaseModel):
     message: str
     event_id: int
     user_id: int
+
+class LeaveEventRequest(BaseModel):
+    event_id: int
+
+class LeaveEventResponse(BaseModel):
+    message: str
+    event_id: int
+    user_id: int
+
+class PaginatedEventResponse(BaseModel):
+    events: list[EventResponse]
+    total_pages: int
