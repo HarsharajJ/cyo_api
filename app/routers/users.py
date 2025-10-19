@@ -1,4 +1,4 @@
-from app.schemas.user import UserResponse, InterestsUpdate, CompleteProfile, Location
+from app.schemas.user import UserResponse, InterestsUpdate, CompleteProfile, Location, UserProfileResponse
 from app.dependencies.auth import get_current_user
 from app.models.user import User
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
@@ -50,7 +50,7 @@ def get_profile(current_user: User = Depends(get_current_user)):
     return user_to_response(current_user)
 
 
-@router.get("/{user_id}", response_model=UserResponse)
+@router.get("/{user_id}", response_model=UserProfileResponse)
 def get_user_by_id(user_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Public endpoint: return a user's full profile by their numeric ID.
 
@@ -59,7 +59,52 @@ def get_user_by_id(user_id: int, current_user: User = Depends(get_current_user),
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    return user_to_response(user)
+
+    # Base response using existing helper (keeps output shape consistent)
+    resp = user_to_response(user)
+
+    # Attach memories (latest first)
+    try:
+        memories_q = db.query(user.memories.__class__).filter_by(user_id=user.id).order_by(
+            
+        )
+    except Exception:
+        # Fallback: use relationship if direct query fails
+        memories_q = user.memories
+
+    # Convert memories to dicts following MemoryResponse schema
+    memories_list = []
+    for m in user.memories:
+        memories_list.append({
+            "id": m.id,
+            "user_id": m.user_id,
+            "caption": m.caption,
+            "image_urls": m.image_urls,
+            "created_at": m.created_at,
+            "updated_at": m.updated_at,
+        })
+
+    # Attach joined events (do not eager-load too much; only include basic EventResponse fields)
+    joined_events_list = []
+    for e in user.joined_events:
+        joined_events_list.append({
+            "id": e.id,
+            "event_photo": e.event_photo,
+            "event_title": e.event_title,
+            "event_description": e.event_description,
+            "event_location": e.event_location,
+            "pincode": e.pincode,
+            "whatsapp_group_link": e.whatsapp_group_link,
+            "date": e.date,
+            "time": e.time,
+            "max_attendees": e.max_attendees,
+            "category": e.category,
+            "host_id": e.host_id,
+        })
+
+    resp["memories"] = memories_list
+    resp["joined_events"] = joined_events_list
+    return resp
 
 
 @router.post("/complete-profile", response_model=UserResponse)

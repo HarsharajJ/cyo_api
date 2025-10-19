@@ -2,6 +2,8 @@ from pydantic import BaseModel, EmailStr, Field
 from datetime import datetime
 from typing import Optional
 from fastapi import UploadFile
+from app.schemas.memory import MemoryResponse
+from app.schemas.event import EventResponse
 
 class UserCreate(BaseModel):
     email: EmailStr
@@ -34,6 +36,10 @@ class UserResponse(BaseModel):
     subscribed: bool = False
     relationship_status: Optional[str] = None
     profile_visibility: str = "public"
+
+class UserProfileResponse(UserResponse):
+    memories: Optional[list[MemoryResponse]] = None
+    joined_events: Optional[list[EventResponse]] = None
 
 class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
