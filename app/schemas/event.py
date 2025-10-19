@@ -26,11 +26,14 @@ class EventResponse(BaseModel):
     max_attendees: int
     category: str
     host_id: int
+    # Allow construction from ORM objects (SQLAlchemy models)
+    model_config = {"from_attributes": True}
 
 class HostInfo(BaseModel):
     profile_picture_url: Optional[str] = None
     full_name: str
     username: str
+    model_config = {"from_attributes": True}
 
 
 class ParticipantInfo(BaseModel):
@@ -38,6 +41,7 @@ class ParticipantInfo(BaseModel):
     profile_picture_url: Optional[str] = None
     full_name: str
     username: str
+    model_config = {"from_attributes": True}
 
 class EventDetailResponse(BaseModel):
     event_photo: Optional[str] = None
@@ -52,6 +56,7 @@ class EventDetailResponse(BaseModel):
     category: str
     host: HostInfo
     participants: Optional[list[ParticipantInfo]] = None
+    model_config = {"from_attributes": True}
 
 class JoinEventRequest(BaseModel):
     event_id: int
@@ -72,3 +77,4 @@ class LeaveEventResponse(BaseModel):
 class PaginatedEventResponse(BaseModel):
     events: list[EventResponse]
     total_pages: int
+    model_config = {"from_attributes": True}
