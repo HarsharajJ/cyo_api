@@ -27,6 +27,7 @@ def user_to_response(user: User) -> dict:
         "email": user.email,
         "username": user.username,
         "full_name": user.full_name,
+        "pincode": user.pincode,
         "location": Location(**location_data),
         "mobile_number": user.mobile_number,
         "is_active": user.is_active,
@@ -49,6 +50,15 @@ def user_to_response(user: User) -> dict:
 def get_profile(current_user: User = Depends(get_current_user)):
     return user_to_response(current_user)
 
+@router.get("/pincode/{pincode}")
+def lookup_pincode(pincode: str):
+    """Return district/state for a pincode (used by client for immediate lookup)."""
+    loc = get_location_from_pincode(pincode)
+    if not loc:
+        # return a 404 so caller knows it wasn't found
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Pincode not found")
+    return {"pincode": pincode, "location": loc}
 
 @router.get("/{user_id}", response_model=UserProfileResponse)
 def get_user_by_id(user_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):

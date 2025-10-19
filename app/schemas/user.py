@@ -21,6 +21,7 @@ class UserResponse(BaseModel):
     email: str
     username: str
     full_name: str
+    pincode: str
     location: Location
     mobile_number: str  
     is_active: bool
