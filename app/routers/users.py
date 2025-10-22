@@ -107,7 +107,7 @@ def list_user_joined_events(user_id: int, page: int = 1, size: int = 20, db: Ses
     q = db.query(User).join(User.joined_events).filter(User.id == user_id)
     # q here yields Event rows via the join; switch to querying Event instead for clarity
     from app.models.event import Event
-    eq = db.query(Event).filter(Event.participants.any(User.id == user_id))
+    eq = db.query(Event).filter(Event.participants.any(User.id == user_id), Event.is_active == True)
     total = eq.count()
     total_pages = (total + size - 1) // size if total > 0 else 0
     events = eq.offset((page - 1) * size).limit(size).all()

@@ -1,4 +1,4 @@
-from sqlalchemy import String, Integer, Text, ForeignKey, Date, Time
+from sqlalchemy import String, Integer, Text, ForeignKey, Date, Time, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import date as DateType, time as TimeType
 from typing import Optional
@@ -17,6 +17,7 @@ class Event(Base):
     time: Mapped[TimeType] = mapped_column(Time)
     max_attendees: Mapped[int] = mapped_column(Integer)
     category: Mapped[str] = mapped_column(String)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     host_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"))
     
     host = relationship("User", back_populates="events")

@@ -8,7 +8,7 @@ from app.models.user import User
 from sqlalchemy import func
 from app.models.pincode import Pincode
 from typing import Optional
-from datetime import date, time
+from datetime import date, time, datetime, timedelta
 import time as _time
 import uuid as _uuid
 import re as _re
@@ -99,6 +99,10 @@ def join_event(
     event = db.query(Event).filter(Event.id == payload.event_id).first()
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
+
+    # Check if event is active
+    if not getattr(event, 'is_active', True):
+        raise HTTPException(status_code=400, detail="Cannot join a cancelled event")
     
     # Check if user is the host
     if event.host_id == current_user.id:
@@ -177,6 +181,7 @@ def get_recommended_events(
         func.lower(Event.category).in_(lowered_interests),
         Event.host_id != current_user.id,
         Event.date > current_date,
+        Event.is_active == True,
         ~Event.participants.any(User.id == current_user.id),
     )
 
@@ -282,7 +287,7 @@ def get_event_details(
     db: Session = Depends(get_db),
 ):
     # Query event with host information
-    event = db.query(Event).filter(Event.id == event_id).first()
+    event = db.query(Event).filter(Event.id == event_id, Event.is_active == True).first()
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
     
@@ -333,7 +338,8 @@ def search_events(
     current_date = date.today()
     q = db.query(Event).filter(
         Event.event_title.ilike(f"%{query}%"),
-        Event.date > current_date
+        Event.date > current_date,
+        Event.is_active == True,
     )
     total = q.count()
     total_pages = math.ceil(total / size)
@@ -351,7 +357,8 @@ def get_my_joined_events(
     page = max(1, page)
     size = max(1, min(200, size))
     q = db.query(Event).filter(
-        Event.participants.any(User.id == current_user.id)
+        Event.participants.any(User.id == current_user.id),
+        Event.is_active == True,
     )
     total = q.count()
     total_pages = math.ceil(total / size)
@@ -368,7 +375,7 @@ def get_my_hosted_events(
     # Get events the user has hosted
     page = max(1, page)
     size = max(1, min(200, size))
-    q = db.query(Event).filter(Event.host_id == current_user.id)
+    q = db.query(Event).filter(Event.host_id == current_user.id, Event.is_active == True)
     total = q.count()
     total_pages = math.ceil(total / size)
     events = q.offset((page - 1) * size).limit(size).all()
@@ -393,7 +400,7 @@ def edit_event(
     db: Session = Depends(get_db),
 ):
     # Fetch event
-    event = db.query(Event).filter(Event.id == event_id).first()
+    event = db.query(Event).filter(Event.id == event_id, Event.is_active == True).first()
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
@@ -451,6 +458,46 @@ def edit_event(
     db.refresh(event)
     return event
 
+
+@router.post("/{event_id}/cancel")
+def cancel_event(
+    event_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Soft-cancel an event. Only the host can cancel. Cancellation is not
+    allowed after the event has started or within 12 hours of the event start.
+    """
+    event = db.query(Event).filter(Event.id == event_id, Event.is_active == True).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found or already cancelled")
+
+    # Only host can cancel
+    if event.host_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the host can cancel this event")
+
+    # Build event datetime
+    try:
+        event_dt = datetime.combine(event.date, event.time)
+    except Exception:
+        # If we can't combine date/time, disallow cancellation for safety
+        raise HTTPException(status_code=400, detail="Invalid event date/time")
+
+    now = datetime.now()
+    # Can't cancel after event started
+    if now >= event_dt:
+        raise HTTPException(status_code=400, detail="Cannot cancel an event that has already started or passed")
+
+    # Can't cancel within 12 hours of start
+    if now >= (event_dt - timedelta(hours=12)):
+        raise HTTPException(status_code=400, detail="Cannot cancel an event within 12 hours of its start time")
+
+    # Soft-delete
+    event.is_active = False
+    db.add(event)
+    db.commit()
+    return {"message": "Event cancelled successfully", "event_id": event_id}
+
 @router.get("/{category}", response_model=PaginatedEventResponse)
 def get_events_by_category(
     category: str,
@@ -472,10 +519,10 @@ def get_events_by_category(
     current_date = date.today()
 
     if category.strip().lower() == "all":
-        q = db.query(Event).filter(Event.date > current_date)
+        q = db.query(Event).filter(Event.date > current_date, Event.is_active == True)
     else:
         # Case-insensitive equality match for the provided category
-        q = db.query(Event).filter(func.lower(Event.category) == category.strip().lower(), Event.date > current_date)
+        q = db.query(Event).filter(func.lower(Event.category) == category.strip().lower(), Event.date > current_date, Event.is_active == True)
 
     total = q.count()
     total_pages = math.ceil(total / size)
