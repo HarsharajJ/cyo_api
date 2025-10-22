@@ -26,6 +26,7 @@ class EventResponse(BaseModel):
     max_attendees: int
     category: str
     host_id: int
+    participants_count: int = 0
     # Allow construction from ORM objects (SQLAlchemy models)
     model_config = {"from_attributes": True}
 
@@ -56,6 +57,7 @@ class EventDetailResponse(BaseModel):
     category: str
     host: HostInfo
     participants: Optional[list[ParticipantInfo]] = None
+    participants_count: Optional[int] = None
     model_config = {"from_attributes": True}
 
 class JoinEventRequest(BaseModel):

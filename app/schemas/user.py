@@ -52,7 +52,7 @@ class UserUpdate(BaseModel):
     subscribed: Optional[bool] = None
     relationship_status: Optional[str] = None
     profile_visibility: Optional[str] = None
-
+    
 
 class InterestsUpdate(BaseModel):
     interests: list[str]

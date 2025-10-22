@@ -21,3 +21,15 @@ class Event(Base):
     
     host = relationship("User", back_populates="events")
     participants = relationship("User", secondary="event_participants", back_populates="joined_events")
+
+    @property
+    def participants_count(self) -> int:
+        """Return the number of participants for this event.
+
+        Accessing this will lazy-load the relationship if necessary. It
+        returns 0 when the relationship is None or empty.
+        """
+        try:
+            return len(self.participants) if self.participants is not None else 0
+        except Exception:
+            return 0

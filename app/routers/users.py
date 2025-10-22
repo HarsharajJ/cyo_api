@@ -6,6 +6,10 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from typing import Optional
 from app.utils.pincode_initializer import save_image, get_location_from_pincode
+from app.models.memory import Memory
+from app.schemas.memory import MemoryListResponse
+from app.schemas.event import PaginatedEventResponse
+from datetime import date
 import time as _time
 import uuid as _uuid
 import re as _re
@@ -60,31 +64,30 @@ def lookup_pincode(pincode: str):
         raise HTTPException(status_code=404, detail="Pincode not found")
     return {"pincode": pincode, "location": loc}
 
-@router.get("/{user_id}", response_model=UserProfileResponse)
+@router.get("/{user_id}", response_model=UserResponse)
 def get_user_by_id(user_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Public endpoint: return a user's full profile by their numeric ID.
+    """Public endpoint: return a user's public profile (basic details) by their numeric ID.
 
+    This endpoint intentionally returns only user metadata (no memories, no events).
     Returns 404 if the user does not exist.
     """
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    return user_to_response(user)
 
-    # Base response using existing helper (keeps output shape consistent)
-    resp = user_to_response(user)
 
-    # Attach memories (latest first)
-    try:
-        memories_q = db.query(user.memories.__class__).filter_by(user_id=user.id).order_by(
-            
-        )
-    except Exception:
-        # Fallback: use relationship if direct query fails
-        memories_q = user.memories
-
-    # Convert memories to dicts following MemoryResponse schema
+@router.get("/memories/{user_id}", response_model=MemoryListResponse)
+def list_user_memories(user_id: int, page: int = 1, size: int = 20, db: Session = Depends(get_db)):
+    """Return paginated memories for the given user id."""
+    page = max(1, page)
+    size = max(1, min(200, size))
+    q = db.query(Memory).filter(Memory.user_id == user_id).order_by(Memory.created_at.desc())
+    total = q.count()
+    total_pages = (total + size - 1) // size if total > 0 else 0
+    memories = q.offset((page - 1) * size).limit(size).all()
     memories_list = []
-    for m in user.memories:
+    for m in memories:
         memories_list.append({
             "id": m.id,
             "user_id": m.user_id,
@@ -93,28 +96,22 @@ def get_user_by_id(user_id: int, current_user: User = Depends(get_current_user),
             "created_at": m.created_at,
             "updated_at": m.updated_at,
         })
+    return MemoryListResponse(memories=memories_list, total=total, page=page, size=size, total_pages=total_pages)
 
-    # Attach joined events (do not eager-load too much; only include basic EventResponse fields)
-    joined_events_list = []
-    for e in user.joined_events:
-        joined_events_list.append({
-            "id": e.id,
-            "event_photo": e.event_photo,
-            "event_title": e.event_title,
-            "event_description": e.event_description,
-            "event_location": e.event_location,
-            "pincode": e.pincode,
-            "whatsapp_group_link": e.whatsapp_group_link,
-            "date": e.date,
-            "time": e.time,
-            "max_attendees": e.max_attendees,
-            "category": e.category,
-            "host_id": e.host_id,
-        })
 
-    resp["memories"] = memories_list
-    resp["joined_events"] = joined_events_list
-    return resp
+@router.get("/events/{user_id}", response_model=PaginatedEventResponse)
+def list_user_joined_events(user_id: int, page: int = 1, size: int = 20, db: Session = Depends(get_db)):
+    """Return paginated events joined by the specified user."""
+    page = max(1, page)
+    size = max(1, min(200, size))
+    q = db.query(User).join(User.joined_events).filter(User.id == user_id)
+    # q here yields Event rows via the join; switch to querying Event instead for clarity
+    from app.models.event import Event
+    eq = db.query(Event).filter(Event.participants.any(User.id == user_id))
+    total = eq.count()
+    total_pages = (total + size - 1) // size if total > 0 else 0
+    events = eq.offset((page - 1) * size).limit(size).all()
+    return PaginatedEventResponse(events=events, total_pages=total_pages)
 
 
 @router.post("/complete-profile", response_model=UserResponse)

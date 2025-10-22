@@ -5,6 +5,7 @@ from app.models.event import Event
 from app.schemas.event import EventCreate, EventResponse, JoinEventRequest, JoinEventResponse, EventDetailResponse, HostInfo, LeaveEventRequest, LeaveEventResponse, PaginatedEventResponse
 from app.dependencies.auth import get_current_user
 from app.models.user import User
+from sqlalchemy import func
 from app.models.pincode import Pincode
 from typing import Optional
 from datetime import date, time
@@ -157,12 +158,13 @@ def get_recommended_events(
     page: int = 1,
     size: int = 20,
 ):
-    if not current_user.interests:
-        return []
-
     # Validate pagination
     page = max(1, page)
     size = max(1, min(200, size))
+
+    # If the user has no interests, return an empty paginated response
+    if not current_user.interests:
+        return PaginatedEventResponse(events=[], total_pages=0)
 
     # Use a bounding-box prefilter to limit candidate pincodes/events before
     # calculating exact distances. This avoids loading all matching events into
@@ -170,17 +172,22 @@ def get_recommended_events(
 
     # DB query for events matching user's interests (do not .all() here)
     current_date = date.today()
+    lowered_interests = [i.strip().lower() for i in (current_user.interests or [])]
     events_query = db.query(Event).filter(
-        Event.category.in_(current_user.interests),
+        func.lower(Event.category).in_(lowered_interests),
         Event.host_id != current_user.id,
-        Event.date > current_date
+        Event.date > current_date,
+        ~Event.participants.any(User.id == current_user.id),
     )
 
     # Get user's location from their pincode
     user_pincode_data = db.query(Pincode).filter(Pincode.pincode == current_user.pincode).first()
     if not user_pincode_data:
         # Fallback: do DB-level pagination (no distance sorting possible)
-        return events_query.offset((page - 1) * size).limit(size).all()
+        fallback_events = events_query.offset((page - 1) * size).limit(size).all()
+        total = events_query.count()
+        total_pages = math.ceil(total / size) if total > 0 else 0
+        return PaginatedEventResponse(events=fallback_events, total_pages=total_pages)
 
     user_lat, user_lon = user_pincode_data.latitude, user_pincode_data.longitude
 
@@ -199,7 +206,11 @@ def get_recommended_events(
     nearby_pincodes = [r.pincode for r in nearby_pincodes_q.all()]
 
     if not nearby_pincodes:
-        return events_query.offset((page - 1) * size).limit(size).all()
+        # Fallback: return paginated events without distance sorting
+        fallback_events = events_query.offset((page - 1) * size).limit(size).all()
+        total = events_query.count()
+        total_pages = math.ceil(total / size) if total > 0 else 0
+        return PaginatedEventResponse(events=fallback_events, total_pages=total_pages)
 
     # Fetch candidate events whose pincode is in the nearby pincodes set.
     # Cap the number of candidates to avoid memory spikes.
@@ -254,7 +265,7 @@ def get_recommended_events(
     # Convert back to Event objects for response
     paginated_event_ids = paginated_events_df['id'].tolist()
     if not paginated_event_ids:
-        return []
+        return PaginatedEventResponse(events=[], total_pages=0)
 
     paginated_events = db.query(Event).filter(Event.id.in_(paginated_event_ids)).all()
 
@@ -463,8 +474,8 @@ def get_events_by_category(
     if category.strip().lower() == "all":
         q = db.query(Event).filter(Event.date > current_date)
     else:
-        # Case-insensitive match for the provided category
-        q = db.query(Event).filter(Event.category.ilike(category), Event.date > current_date)
+        # Case-insensitive equality match for the provided category
+        q = db.query(Event).filter(func.lower(Event.category) == category.strip().lower(), Event.date > current_date)
 
     total = q.count()
     total_pages = math.ceil(total / size)
