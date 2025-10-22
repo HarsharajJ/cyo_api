@@ -13,6 +13,7 @@ from datetime import date
 import time as _time
 import uuid as _uuid
 import re as _re
+from sqlalchemy import or_
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -101,13 +102,13 @@ def list_user_memories(user_id: int, page: int = 1, size: int = 20, db: Session 
 
 @router.get("/events/{user_id}", response_model=PaginatedEventResponse)
 def list_user_joined_events(user_id: int, page: int = 1, size: int = 20, db: Session = Depends(get_db)):
-    """Return paginated events joined by the specified user."""
+    """Return paginated events joined or hosted by the specified user."""
     page = max(1, page)
     size = max(1, min(200, size))
     q = db.query(User).join(User.joined_events).filter(User.id == user_id)
     # q here yields Event rows via the join; switch to querying Event instead for clarity
     from app.models.event import Event
-    eq = db.query(Event).filter(Event.participants.any(User.id == user_id), Event.is_active == True)
+    eq = db.query(Event).filter(or_(Event.participants.any(User.id == user_id), Event.host_id == user_id), Event.is_active == True)
     total = eq.count()
     total_pages = (total + size - 1) // size if total > 0 else 0
     events = eq.offset((page - 1) * size).limit(size).all()
