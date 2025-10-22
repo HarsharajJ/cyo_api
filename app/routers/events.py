@@ -340,6 +340,7 @@ def search_events(
         Event.event_title.ilike(f"%{query}%"),
         Event.date > current_date,
         Event.is_active == True,
+        ~Event.participants.any(User.id == current_user.id),
     )
     total = q.count()
     total_pages = math.ceil(total / size)
@@ -519,10 +520,10 @@ def get_events_by_category(
     current_date = date.today()
 
     if category.strip().lower() == "all":
-        q = db.query(Event).filter(Event.date > current_date, Event.is_active == True)
+        q = db.query(Event).filter(Event.date > current_date, Event.is_active == True, ~Event.participants.any(User.id == current_user.id),)
     else:
         # Case-insensitive equality match for the provided category
-        q = db.query(Event).filter(func.lower(Event.category) == category.strip().lower(), Event.date > current_date, Event.is_active == True)
+        q = db.query(Event).filter(func.lower(Event.category) == category.strip().lower(), Event.date > current_date, Event.is_active == True, ~Event.participants.any(User.id == current_user.id),)
 
     total = q.count()
     total_pages = math.ceil(total / size)
