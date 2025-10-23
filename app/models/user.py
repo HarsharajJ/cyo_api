@@ -29,7 +29,7 @@ class User(Base):
     snapchat_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     interests: Mapped[Optional[list[str]]] = mapped_column(JSON, nullable=True)
     subscribed: Mapped[bool] = mapped_column(Boolean, default=False)
-    relationship_status: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    relationship_status: Mapped[Optional[str]] = mapped_column(String, nullable=True,default="Prefer not to say")
     profile_visibility: Mapped[str] = mapped_column(String, default="public")
     events: Mapped[list["Event"]] = relationship("Event", back_populates="host")
     joined_events: Mapped[list["Event"]] = relationship("Event", secondary="event_participants", back_populates="participants")

@@ -50,10 +50,9 @@ app = FastAPI(
 
 # List of allowed origins
 origins = [
-    "http://localhost:8080",
-    "http://localhost:8081",
-    # Add your Vercel frontend URL here once it's deployed
-    # Example: "https://your-project-name.vercel.app"
+    # "http://localhost:8080",
+    # "http://localhost:8081",
+    "*"
 ]
 
 # CORS middleware - Allow all origins
