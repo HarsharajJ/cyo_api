@@ -90,30 +90,39 @@ def check_storage_connection_and_ensure_bucket(bucket_name: Optional[str] = None
     """
     Ensure the storage client can connect and the bucket exists (create if missing).
 
-    Reads bucket name from GCS_BUCKET_NAME env var if not supplied.
+    Reads bucket name from GCP_BUCKET_NAME env var if not supplied.
     Raises RuntimeError on failure. Returns the bucket name on success.
     """
     # Try OS env first, then pydantic settings (which reads .env)
-    env_bucket = os.environ.get("GCS_BUCKET_NAME") or settings.gcs_bucket_name
+    env_bucket = os.environ.get("GCP_BUCKET_NAME") or settings.gcp_bucket_name
     if bucket_name is None:
         if not env_bucket:
-            raise RuntimeError("GCS bucket name not provided. Set GCS_BUCKET_NAME in your .env or settings")
+            raise RuntimeError("GCP bucket name not provided. Set GCP_BUCKET_NAME in your .env or settings")
         bucket_name = env_bucket
 
     if storage is None:
         raise RuntimeError("google-cloud-storage not installed. Add it to requirements.txt and install.")
 
-    # emulator host is read by the client library from env var STORAGE_EMULATOR_HOST
-    # prefer OS env var, otherwise use settings
-    emulator_host = os.environ.get("STORAGE_EMULATOR_HOST") or settings.storage_emulator_host
-    if emulator_host:
-        os.environ["STORAGE_EMULATOR_HOST"] = emulator_host
+    if not settings.gcp_service_account_file:
+        raise RuntimeError("GCP service account file not provided. Set GCP_SERVICE_ACCOUNT_FILE in your .env or settings")
 
-    client = storage.Client()
+    client = storage.Client.from_service_account_json(settings.gcp_service_account_file)
     bucket = client.bucket(bucket_name)
     try:
         if not bucket.exists():
             bucket.create()
+            # Enable Uniform Bucket-Level Access
+            bucket.iam_configuration.uniform_bucket_level_access_enabled = True
+            bucket.patch()
+            # Grant public read access via IAM (works with UBLA)
+            policy = bucket.get_iam_policy(requested_policy_version=3)
+            # Add public read role only if not already present
+            if not any(b for b in policy.bindings if b["role"] == "roles/storage.objectViewer" and "allUsers" in b["members"]):
+                policy.bindings.append({
+                    "role": "roles/storage.objectViewer",
+                    "members": {"allUsers"}
+                })
+                bucket.set_iam_policy(policy)
     except Exception as e:
         raise RuntimeError(f"Unable to access/create bucket '{bucket_name}': {e}")
 
@@ -125,29 +134,39 @@ def get_storage_bucket(bucket_name: Optional[str] = None):
     if storage is None:
         raise RuntimeError("google-cloud-storage not installed. Add it to requirements.txt and install.")
 
-    env_bucket = os.environ.get("GCS_BUCKET_NAME") or settings.gcs_bucket_name
+    env_bucket = os.environ.get("GCP_BUCKET_NAME") or settings.gcp_bucket_name
     if bucket_name is None:
         if not env_bucket:
-            raise RuntimeError("GCS bucket name not provided. Set GCS_BUCKET_NAME in your .env or settings")
+            raise RuntimeError("GCP bucket name not provided. Set GCP_BUCKET_NAME in your .env or settings")
         bucket_name = env_bucket
 
-    # ensure emulator host is set for the client if present in settings
-    emulator_host = os.environ.get("STORAGE_EMULATOR_HOST") or settings.storage_emulator_host
-    if emulator_host:
-        os.environ["STORAGE_EMULATOR_HOST"] = emulator_host
+    if not settings.gcp_service_account_file:
+        raise RuntimeError("GCP service account file not provided. Set GCP_SERVICE_ACCOUNT_FILE in your .env or settings")
 
-    client = storage.Client()
+    client = storage.Client.from_service_account_json(settings.gcp_service_account_file)
     bucket = client.bucket(bucket_name)
     if not bucket.exists():
         bucket.create()
+        # Enable Uniform Bucket-Level Access
+        bucket.iam_configuration.uniform_bucket_level_access_enabled = True
+        bucket.patch()
+        # Grant public read access via IAM (works with UBLA)
+        policy = bucket.get_iam_policy(requested_policy_version=3)
+        # Add public read role only if not already present
+        if not any(b for b in policy.bindings if b["role"] == "roles/storage.objectViewer" and "allUsers" in b["members"]):
+            policy.bindings.append({
+                "role": "roles/storage.objectViewer",
+                "members": {"allUsers"}
+            })
+            bucket.set_iam_policy(policy)
     return bucket
 
 
 def save_image(file, path: str, bucket_name: Optional[str] = None) -> Optional[str]:
     """
-    Save an UploadFile to cloud storage (if configured) or to local `uploads/`.
+    Save an UploadFile to GCP storage.
 
-    Returns the URL/path to store in DB, or None if no file was provided.
+    Returns the public URL to store in DB, or None if no file was provided.
     """
     # Handle None or empty string (swagger sends empty string when field is present but empty)
     if not file:
@@ -163,34 +182,31 @@ def save_image(file, path: str, bucket_name: Optional[str] = None) -> Optional[s
 
     normalized = path.lstrip("/")
 
-    # Cloud upload only. If storage not configured or upload fails, raise.
+    # GCP upload only.
     if storage is None:
         raise RuntimeError("google-cloud-storage not installed. Install it and try again.")
 
-    if not (bucket_name or os.environ.get("GCS_BUCKET_NAME") or settings.gcs_bucket_name):
-        raise RuntimeError("GCS bucket not configured. Set GCS_BUCKET_NAME in .env or pass bucket_name")
+    if not settings.gcp_service_account_file:
+        raise RuntimeError("GCP service account file not configured. Set GCP_SERVICE_ACCOUNT_FILE in .env")
 
-    # Ensure emulator host from settings is available to client
-    emulator_host = os.environ.get("STORAGE_EMULATOR_HOST") or settings.storage_emulator_host
-    if emulator_host:
-        os.environ["STORAGE_EMULATOR_HOST"] = emulator_host
+    if not (bucket_name or os.environ.get("GCP_BUCKET_NAME") or settings.gcp_bucket_name):
+        raise RuntimeError("GCP bucket not configured. Set GCP_BUCKET_NAME in .env or pass bucket_name")
 
     try:
         bucket = get_storage_bucket(bucket_name)
         blob = bucket.blob(normalized)
         file.file.seek(0)
         blob.upload_from_file(file.file, rewind=True)
-        emulator = os.environ.get("STORAGE_EMULATOR_HOST")
-        if emulator:
-            return f"{emulator}/storage/v1/b/{bucket.name}/o/{blob.name}?alt=media"
-        return blob.public_url
+        # Construct public URL
+        public_url = f"https://storage.googleapis.com/{bucket.name}/{blob.name}"
+        return public_url
     except Exception as e:
-        raise RuntimeError(f"Cloud upload failed: {e}")
+        raise RuntimeError(f"GCP upload failed: {e}")
 
 
 def save_images(files, base_path: str, bucket_name: Optional[str] = None) -> list[str]:
     """
-    Save multiple UploadFiles to cloud storage efficiently.
+    Save multiple UploadFiles to GCP storage efficiently.
 
     Args:
         files: List of UploadFile objects or single UploadFile
@@ -198,7 +214,7 @@ def save_images(files, base_path: str, bucket_name: Optional[str] = None) -> lis
         bucket_name: Optional bucket name override
 
     Returns:
-        List of URLs/paths for the uploaded files
+        List of public URLs for the uploaded files
     """
     # Handle single file case
     if not isinstance(files, list):
@@ -218,17 +234,15 @@ def save_images(files, base_path: str, bucket_name: Optional[str] = None) -> lis
     if not valid_files:
         return []
 
-    # Cloud upload only. If storage not configured or upload fails, raise.
+    # GCP upload only.
     if storage is None:
         raise RuntimeError("google-cloud-storage not installed. Install it and try again.")
 
-    if not (bucket_name or os.environ.get("GCS_BUCKET_NAME") or settings.gcs_bucket_name):
-        raise RuntimeError("GCS bucket not configured. Set GCS_BUCKET_NAME in .env or pass bucket_name")
+    if not settings.gcp_service_account_file:
+        raise RuntimeError("GCP service account file not configured. Set GCP_SERVICE_ACCOUNT_FILE in .env")
 
-    # Ensure emulator host from settings is available to client
-    emulator_host = os.environ.get("STORAGE_EMULATOR_HOST") or settings.storage_emulator_host
-    if emulator_host:
-        os.environ["STORAGE_EMULATOR_HOST"] = emulator_host
+    if not (bucket_name or os.environ.get("GCP_BUCKET_NAME") or settings.gcp_bucket_name):
+        raise RuntimeError("GCP bucket not configured. Set GCP_BUCKET_NAME in .env or pass bucket_name")
 
     try:
         bucket = get_storage_bucket(bucket_name)
@@ -247,16 +261,13 @@ def save_images(files, base_path: str, bucket_name: Optional[str] = None) -> lis
             file.file.seek(0)
             blob.upload_from_file(file.file, rewind=True)
 
-            emulator = os.environ.get("STORAGE_EMULATOR_HOST")
-            if emulator:
-                url = f"{emulator}/storage/v1/b/{bucket.name}/o/{blob.name}?alt=media"
-            else:
-                url = blob.public_url
-            uploaded_urls.append(url)
+            # Construct public URL
+            public_url = f"https://storage.googleapis.com/{bucket.name}/{blob.name}"
+            uploaded_urls.append(public_url)
 
         return uploaded_urls
     except Exception as e:
-        raise RuntimeError(f"Batch cloud upload failed: {e}")
+        raise RuntimeError(f"Batch GCP upload failed: {e}")
 
 
 def get_location_from_pincode(pincode: str) -> Optional[dict]:

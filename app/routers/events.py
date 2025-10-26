@@ -514,6 +514,9 @@ def get_events_by_category(
     """
     if not category:
         return PaginatedEventResponse(events=[], total_pages=0)
+    from urllib.parse import unquote
+
+    category = unquote(category) # Decode URL-encoded category Manually
 
     page = max(1, page)
     size = max(1, min(200, size))
@@ -523,6 +526,7 @@ def get_events_by_category(
         q = db.query(Event).filter(Event.date > current_date, Event.is_active == True, ~Event.participants.any(User.id == current_user.id),)
     else:
         # Case-insensitive equality match for the provided category
+        # print("Filtering events by category:", category.strip().lower())
         q = db.query(Event).filter(func.lower(Event.category) == category.strip().lower(), Event.date > current_date, Event.is_active == True, ~Event.participants.any(User.id == current_user.id))
     total = q.count()
     total_pages = math.ceil(total / size)

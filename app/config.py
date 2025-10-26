@@ -8,9 +8,9 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
     database_url: str = "sqlite:///./app.db"
     debug: bool = False
-    # Optional GCS/emulator settings
-    gcs_bucket_name: Optional[str] = None
-    storage_emulator_host: Optional[str] = None
+    # GCP settings
+    gcp_service_account_file: Optional[str] = None
+    gcp_bucket_name: Optional[str] = None
 
     class Config:
         env_file = ".env"

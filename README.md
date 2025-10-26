@@ -33,11 +33,15 @@ main.py             # Application entry point
 uv sync
 ```
 
-2. Configure environment variables in `.env`:
+2. Place the GCP service account JSON file in the backend folder (e.g., `cyoproject-476108-ff9e7996bc22.json`).
+
+3. Configure environment variables in `.env`:
 ```env
 SECRET_KEY=your-super-secret-key-change-this-in-production
 DEBUG=false
 DATABASE_URL=sqlite:///./app.db
+GCP_SERVICE_ACCOUNT_FILE=/path/to/your/cyoproject-476108-ff9e7996bc22.json
+GCP_BUCKET_NAME=your-gcp-bucket-name
 ```
 
 ## Running the Application
