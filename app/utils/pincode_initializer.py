@@ -164,7 +164,7 @@ def get_storage_bucket(bucket_name: Optional[str] = None):
 
 def save_image(file, path: str, bucket_name: Optional[str] = None) -> Optional[str]:
     """
-    Save an UploadFile to GCP storage.
+    Save an UploadFile to GCP storage after resizing.
 
     Returns the public URL to store in DB, or None if no file was provided.
     """
@@ -195,8 +195,11 @@ def save_image(file, path: str, bucket_name: Optional[str] = None) -> Optional[s
     try:
         bucket = get_storage_bucket(bucket_name)
         blob = bucket.blob(normalized)
-        file.file.seek(0)
-        blob.upload_from_file(file.file, rewind=True)
+        
+        # Resize image
+        resized_file = resize_image(file.file)
+        blob.upload_from_file(resized_file, rewind=True)
+        
         # Construct public URL
         public_url = f"https://storage.googleapis.com/{bucket.name}/{blob.name}"
         return public_url
@@ -258,8 +261,10 @@ def save_images(files, base_path: str, bucket_name: Optional[str] = None) -> lis
 
             normalized = path.lstrip("/")
             blob = bucket.blob(normalized)
-            file.file.seek(0)
-            blob.upload_from_file(file.file, rewind=True)
+            
+            # Resize image
+            resized_file = resize_image(file.file)
+            blob.upload_from_file(resized_file, rewind=True)
 
             # Construct public URL
             public_url = f"https://storage.googleapis.com/{bucket.name}/{blob.name}"
@@ -287,3 +292,102 @@ def get_location_from_pincode(pincode: str) -> Optional[dict]:
         return None
     finally:
         db.close()
+
+
+def delete_from_gcp(blob_name: str, bucket_name: Optional[str] = None) -> bool:
+    """
+    Delete a blob from GCP storage.
+
+    Args:
+        blob_name: The name of the blob to delete (without bucket prefix)
+        bucket_name: Optional bucket name override
+
+    Returns:
+        True if deleted successfully, False otherwise
+    """
+    if storage is None:
+        raise RuntimeError("google-cloud-storage not installed. Install it and try again.")
+
+    env_bucket = os.environ.get("GCP_BUCKET_NAME") or settings.gcp_bucket_name
+    if bucket_name is None:
+        if not env_bucket:
+            raise RuntimeError("GCP bucket name not provided. Set GCP_BUCKET_NAME in your .env or settings")
+        bucket_name = env_bucket
+
+    if not settings.gcp_service_account_file:
+        raise RuntimeError("GCP service account file not configured. Set GCP_SERVICE_ACCOUNT_FILE in .env")
+
+    try:
+        client = storage.Client.from_service_account_json(settings.gcp_service_account_file)
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(blob_name)
+        if blob.exists():
+            blob.delete()
+            return True
+        return False
+    except Exception as e:
+        raise RuntimeError(f"GCP delete failed: {e}")
+
+
+def delete_images_from_gcp(urls: list[str], bucket_name: Optional[str] = None) -> int:
+    """
+    Delete multiple images from GCP based on their public URLs.
+
+    Args:
+        urls: List of public URLs
+        bucket_name: Optional bucket name override
+
+    Returns:
+        Number of successfully deleted images
+    """
+    if not urls:
+        return 0
+
+    env_bucket = os.environ.get("GCP_BUCKET_NAME") or settings.gcp_bucket_name
+    if bucket_name is None:
+        bucket_name = env_bucket
+
+    deleted_count = 0
+    for url in urls:
+        # Extract blob name from URL
+        # URL format: https://storage.googleapis.com/{bucket}/{blob_name}
+        try:
+            parts = url.split('/')
+            if len(parts) >= 5 and parts[2] == 'storage.googleapis.com':
+                blob_name = '/'.join(parts[4:])
+                if delete_from_gcp(blob_name, bucket_name):
+                    deleted_count += 1
+        except Exception:
+            continue  # Skip invalid URLs
+    return deleted_count
+
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
+
+def resize_image(image_file, max_size=(1920, 1080)):
+    """
+    Resize image to fit within max_size while maintaining aspect ratio.
+    Target is around 1080p.
+
+    Args:
+        image_file: File-like object
+        max_size: Tuple of (width, height)
+
+    Returns:
+        BytesIO object with resized image
+    """
+    if Image is None:
+        raise RuntimeError("Pillow not installed. Install it to resize images.")
+
+    try:
+        image = Image.open(image_file)
+        image.thumbnail(max_size, Image.Resampling.LANCZOS)
+        from io import BytesIO
+        output = BytesIO()
+        image.save(output, format=image.format or 'JPEG', quality=85)
+        output.seek(0)
+        return output
+    except Exception as e:
+        raise RuntimeError(f"Image resize failed: {e}")

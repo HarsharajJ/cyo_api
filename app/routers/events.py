@@ -12,7 +12,7 @@ from datetime import date, time, datetime, timedelta
 import time as _time
 import uuid as _uuid
 import re as _re
-from app.utils.pincode_initializer import save_image
+from app.utils.pincode_initializer import save_image, delete_from_gcp
 import math
 
 router = APIRouter(prefix="/events", tags=["events"])
@@ -116,6 +116,12 @@ def join_event(
     if len(event.participants) >= event.max_attendees:
         raise HTTPException(status_code=400, detail="Event is full")
     
+    # Check if event starts within 30 minutes
+    event_dt = datetime.combine(event.date, event.time)
+    now = datetime.now()
+    if event_dt <= now + timedelta(minutes=30):
+        raise HTTPException(status_code=400, detail="Cannot join an event that starts within 30 minutes")
+    
     # Add user to participants
     event.participants.append(current_user)
     db.commit()
@@ -180,7 +186,7 @@ def get_recommended_events(
     events_query = db.query(Event).filter(
         func.lower(Event.category).in_(lowered_interests),
         Event.host_id != current_user.id,
-        Event.date > current_date,
+        Event.date >= current_date,
         Event.is_active == True,
         ~Event.participants.any(User.id == current_user.id),
     )
@@ -338,7 +344,7 @@ def search_events(
     current_date = date.today()
     q = db.query(Event).filter(
         Event.event_title.ilike(f"%{query}%"),
-        Event.date > current_date,
+        Event.date >= current_date,
         Event.is_active == True,
         ~Event.participants.any(User.id == current_user.id),
     )
@@ -411,6 +417,16 @@ def edit_event(
 
     # Handle photo upload
     if event_photo:
+        # Delete old photo if exists
+        if event.event_photo:
+            try:
+                parts = event.event_photo.split('/')
+                if len(parts) >= 5 and parts[2] == 'storage.googleapis.com':
+                    blob_name = '/'.join(parts[4:])
+                    delete_from_gcp(blob_name)
+            except Exception:
+                pass  # Ignore delete errors
+
         orig = getattr(event_photo, 'filename', None) or "image"
         if "." in orig:
             base, ext = orig.rsplit(".", 1)
@@ -523,11 +539,11 @@ def get_events_by_category(
     current_date = date.today()
 
     if category.strip().lower() == "all":
-        q = db.query(Event).filter(Event.date > current_date, Event.is_active == True, ~Event.participants.any(User.id == current_user.id),)
+        q = db.query(Event).filter(Event.date >= current_date, Event.is_active == True, ~Event.participants.any(User.id == current_user.id),)
     else:
         # Case-insensitive equality match for the provided category
         # print("Filtering events by category:", category.strip().lower())
-        q = db.query(Event).filter(func.lower(Event.category) == category.strip().lower(), Event.date > current_date, Event.is_active == True, ~Event.participants.any(User.id == current_user.id))
+        q = db.query(Event).filter(func.lower(Event.category) == category.strip().lower(), Event.date >= current_date, Event.is_active == True, ~Event.participants.any(User.id == current_user.id))
     total = q.count()
     total_pages = math.ceil(total / size)
     events = q.offset((page - 1) * size).limit(size).all()

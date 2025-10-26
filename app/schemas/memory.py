@@ -20,3 +20,7 @@ class MemoryListResponse(BaseModel):
     page: int
     size: int
     total_pages: int
+
+class MemoryUpdate(BaseModel):
+    caption: Optional[str] = None
+    images: Optional[List] = None  # Optional list of new images
