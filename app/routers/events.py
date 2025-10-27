@@ -539,11 +539,11 @@ def get_events_by_category(
     current_date = date.today()
 
     if category.strip().lower() == "all":
-        q = db.query(Event).filter(Event.date >= current_date, Event.is_active == True, ~Event.participants.any(User.id == current_user.id),)
+        q = db.query(Event).filter(Event.date >= current_date, Event.is_active == True, ~Event.participants.any(User.id == current_user.id),Event.host_id != current_user.id)
     else:
         # Case-insensitive equality match for the provided category
         # print("Filtering events by category:", category.strip().lower())
-        q = db.query(Event).filter(func.lower(Event.category) == category.strip().lower(), Event.date >= current_date, Event.is_active == True, ~Event.participants.any(User.id == current_user.id))
+        q = db.query(Event).filter(func.lower(Event.category) == category.strip().lower(), Event.date >= current_date, Event.is_active == True, ~Event.participants.any(User.id == current_user.id), Event.host_id != current_user.id)
     total = q.count()
     total_pages = math.ceil(total / size)
     events = q.offset((page - 1) * size).limit(size).all()
