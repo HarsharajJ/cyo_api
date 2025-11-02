@@ -5,7 +5,7 @@ from app.models.event import Event
 from app.schemas.event import EventCreate, EventResponse, JoinEventRequest, JoinEventResponse, EventDetailResponse, HostInfo, LeaveEventRequest, LeaveEventResponse, PaginatedEventResponse
 from app.dependencies.auth import get_current_user
 from app.models.user import User
-from sqlalchemy import func
+from sqlalchemy import func, or_, and_
 from app.models.pincode import Pincode
 from typing import Optional
 from datetime import date, time, datetime, timedelta
@@ -181,16 +181,25 @@ def get_recommended_events(
     # memory when a user's interests match many events.
 
     # DB query for events matching user's interests (do not .all() here)
-    current_date = date.today()
     lowered_interests = [i.strip().lower() for i in (current_user.interests or [])]
+    
+    current_date = date.today()
+    current_time = datetime.now().time()
     events_query = db.query(Event).filter(
+        ~Event.participants.any(User.id == current_user.id),
+        Event.is_active == True,
         func.lower(Event.category).in_(lowered_interests),
         Event.host_id != current_user.id,
-        Event.date >= current_date,
         Event.is_active == True,
         ~Event.participants.any(User.id == current_user.id),
+        or_(
+            Event.date > current_date,  # future events
+            and_(
+                Event.date == current_date,  # today's events
+                Event.time >= current_time  # still upcoming today
+            )
+        )
     )
-
     # Get user's location from their pincode
     user_pincode_data = db.query(Pincode).filter(Pincode.pincode == current_user.pincode).first()
     if not user_pincode_data:
@@ -342,11 +351,18 @@ def search_events(
     page = max(1, page)
     size = max(1, min(200, size))
     current_date = date.today()
+    current_time = datetime.now().time()
     q = db.query(Event).filter(
-        Event.event_title.ilike(f"%{query}%"),
-        Event.date >= current_date,
         Event.is_active == True,
+        Event.event_title.ilike(f"%{query}%"),
         ~Event.participants.any(User.id == current_user.id),
+        or_(
+            Event.date > current_date,  # future events
+            and_(
+                Event.date == current_date,  # today's events
+                Event.time >= current_time  # still upcoming today
+            )
+        )
     )
     total = q.count()
     total_pages = math.ceil(total / size)

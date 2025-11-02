@@ -6,11 +6,14 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.models.token import RefreshToken
+from app.models.otp import OTP
 from app.schemas.user import UserCreate, UserResponse
 from app.schemas.token import TokenResponse, RefreshResponse
+from app.schemas.otp import OTPRequest, OTPVerify, OTPResponse
 from app.auth.jwt import create_access_token, create_refresh_token, verify_token
 from app.auth.utils import verify_password, get_password_hash
 from app.config import settings
+from app.utils.email import generate_otp, send_otp_email
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
@@ -58,8 +61,12 @@ def login(request: Request, response: Response, form_data: OAuth2PasswordRequest
     else:
         user = db.query(User).filter(User.username == form_data.username).first()
     
-    if not user or not verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect username/email or password")
+    # Distinct errors: user not found vs incorrect password
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
+    if not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect password")
     
     # Store refresh token
     
@@ -112,3 +119,100 @@ def logout(response: Response, refresh_token: Optional[str] = Cookie(None), db: 
             db.commit()
     response.delete_cookie(key="refresh_token")
     return {"message": "Logged out successfully"}
+
+
+@router.post("/otp/generate", response_model=OTPResponse)
+def generate_otp_endpoint(request: OTPRequest, db: Session = Depends(get_db)):
+    """
+    Generate and send OTP to the specified email address.
+    Previous unverified OTPs for this email will be invalidated.
+    """
+    try:
+        # Generate 6-digit OTP
+        otp_code = generate_otp(6)
+        
+        # Invalidate all previous unverified OTPs for this email
+        db.query(OTP).filter(
+            OTP.email == request.email,
+            OTP.is_verified == False
+        ).delete()
+        db.commit()
+        
+        # Create new OTP record
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.otp_expire_minutes)
+        new_otp = OTP(
+            email=request.email,
+            otp_code=otp_code,
+            expires_at=expires_at
+        )
+        db.add(new_otp)
+        db.commit()
+        
+        # Send OTP via email
+        email_sent = send_otp_email(request.email, otp_code)
+        
+        if not email_sent:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to send OTP email. Please try again."
+            )
+        
+        return {
+            "message": f"OTP sent successfully to {request.email}",
+            "email": request.email
+        }
+    
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while generating OTP"
+        )
+
+
+@router.post("/otp/verify", response_model=OTPResponse)
+def verify_otp_endpoint(request: OTPVerify, db: Session = Depends(get_db)):
+    """
+    Verify the OTP code for the specified email address.
+    OTP must be valid and not expired.
+    """
+    # Find the most recent OTP for this email
+    otp_record = db.query(OTP).filter(
+        OTP.email == request.email,
+        OTP.otp_code == request.otp_code,
+        OTP.is_verified == False
+    ).order_by(OTP.created_at.desc()).first()
+    
+    if not otp_record:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid OTP code"
+        )
+    
+    # Check if OTP has expired
+    now = datetime.now(timezone.utc)
+    
+    # Handle timezone-aware vs timezone-naive datetime comparison
+    expires_at = otp_record.expires_at
+    if expires_at.tzinfo is None:
+        # Database stored naive datetime, compare with naive now
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    
+    if expires_at < now:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OTP has expired. Please request a new one."
+        )
+    
+    # Mark OTP as verified
+    otp_record.is_verified = True
+    db.commit()
+    
+    return {
+        "message": "OTP verified successfully",
+        "email": request.email
+    }
