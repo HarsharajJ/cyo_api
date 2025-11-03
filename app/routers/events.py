@@ -176,10 +176,6 @@ def get_recommended_events(
     if not current_user.interests:
         return PaginatedEventResponse(events=[], total_pages=0)
 
-    # Use a bounding-box prefilter to limit candidate pincodes/events before
-    # calculating exact distances. This avoids loading all matching events into
-    # memory when a user's interests match many events.
-
     # DB query for events matching user's interests (do not .all() here)
     lowered_interests = [i.strip().lower() for i in (current_user.interests or [])]
     

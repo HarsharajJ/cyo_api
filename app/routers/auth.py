@@ -10,6 +10,7 @@ from app.models.otp import OTP
 from app.schemas.user import UserCreate, UserResponse
 from app.schemas.token import TokenResponse, RefreshResponse
 from app.schemas.otp import OTPRequest, OTPVerify, OTPResponse
+from app.schemas.auth import ForgotPasswordRequest, ResetPasswordRequest, ResetPasswordResponse
 from app.auth.jwt import create_access_token, create_refresh_token, verify_token
 from app.auth.utils import verify_password, get_password_hash
 from app.config import settings
@@ -216,3 +217,90 @@ def verify_otp_endpoint(request: OTPVerify, db: Session = Depends(get_db)):
         "message": "OTP verified successfully",
         "email": request.email
     }
+
+
+@router.post("/forgot-password", response_model=OTPResponse)
+def forgot_password(request: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    """
+    Initiate a password reset by accepting an email or username (identifier).
+    If the identifier doesn't correspond to any user, return an error.
+    If user exists, generate and send an OTP to the user's registered email.
+    """
+    identifier = request.identifier
+    # Find user by email or username
+    if '@' in identifier:
+        user = db.query(User).filter(User.email == identifier).first()
+    else:
+        user = db.query(User).filter(User.username == identifier).first()
+
+    if not user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email/username does not exist")
+
+    try:
+        # Generate 6-digit OTP
+        otp_code = generate_otp(6)
+
+        # Invalidate previous unverified OTPs for this email
+        db.query(OTP).filter(
+            OTP.email == user.email,
+            OTP.is_verified == False
+        ).delete()
+        db.commit()
+
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.otp_expire_minutes)
+        new_otp = OTP(
+            email=user.email,
+            otp_code=otp_code,
+            expires_at=expires_at
+        )
+        db.add(new_otp)
+        db.commit()
+
+        email_sent = send_otp_email(user.email, otp_code)
+        if not email_sent:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to send OTP email. Please try again."
+            )
+
+        return {"message": f"OTP sent successfully to {user.email}", "email": user.email}
+
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred while generating OTP")
+
+
+@router.post("/reset-password", response_model=ResetPasswordResponse)
+def reset_password(request: ResetPasswordRequest, db: Session = Depends(get_db)):
+    """
+    Reset password for a user after verifying that an OTP was successfully verified for their email.
+    The request accepts an identifier (email or username) and the new password.
+    """
+    identifier = request.identifier
+    if '@' in identifier:
+        user = db.query(User).filter(User.email == identifier).first()
+    else:
+        user = db.query(User).filter(User.username == identifier).first()
+
+    if not user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email/username does not exist")
+
+    # Check for a verified OTP for this user's email
+    otp_record = db.query(OTP).filter(
+        OTP.email == user.email,
+        OTP.is_verified == True
+    ).order_by(OTP.created_at.desc()).first()
+
+    if not otp_record:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OTP not verified for this email/username")
+
+    # Update user's password
+    user.hashed_password = get_password_hash(request.new_password)
+    db.commit()
+
+    # Remove OTPs for this email so the same OTP cannot be reused
+    db.query(OTP).filter(OTP.email == user.email).delete()
+    db.commit()
+
+    return {"message": "Password reset successful"}
