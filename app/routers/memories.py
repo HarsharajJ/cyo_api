@@ -142,3 +142,34 @@ def update_memory(
     db.commit()
     db.refresh(memory)
     return memory
+
+
+@router.delete("/delete_memory/{memory_id}")
+def delete_memory(
+    memory_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete a memory and its images from GCP for the current user."""
+
+    memory = db.query(Memory).filter(Memory.id == memory_id, Memory.user_id == current_user.id).first()
+    if not memory:
+        raise HTTPException(status_code=404, detail="Memory not found")
+
+    # First attempt to delete images from GCP (if any). If this fails, abort to avoid DB/file mismatch.
+    try:
+        if memory.image_urls:
+            # memory.image_urls is a list of public URLs saved earlier
+            delete_images_from_gcp(memory.image_urls)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete images from storage: {e}")
+
+    # Delete the DB record
+    try:
+        db.delete(memory)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete memory record: {e}")
+
+    return {"detail": "Memory deleted"}

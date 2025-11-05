@@ -23,4 +23,4 @@ class MemoryListResponse(BaseModel):
 
 class MemoryUpdate(BaseModel):
     caption: Optional[str] = None
-    images: Optional[List] = None  # Optional list of new images
+    images: Optional[List] = None  
