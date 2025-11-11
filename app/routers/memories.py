@@ -100,47 +100,26 @@ def view_memories(
 def update_memory(
     memory_id: int,
     caption: Optional[str] = Form(None),
-    images: Optional[List[UploadFile]] = File(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Update a memory with new caption and/or images. Old images are deleted from GCP."""
+    """Update only the caption of a memory. Images remain unchanged."""
 
+    # Fetch the memory belonging to the current user
     memory = db.query(Memory).filter(Memory.id == memory_id, Memory.user_id == current_user.id).first()
     if not memory:
         raise HTTPException(status_code=404, detail="Memory not found")
 
-    # Delete old images from GCP
-    if memory.image_urls:
-        delete_images_from_gcp(memory.image_urls)
-
     # Update caption if provided
     if caption is not None:
         memory.caption = caption
+    else:
+        raise HTTPException(status_code=400, detail="Caption is required to update")
 
-    # Handle new images
-    if images and len(images) > 0:
-        if len(images) > 10:
-            raise HTTPException(status_code=400, detail="Maximum 10 images allowed per memory")
-
-        # Create safe filename base
-        caption_slug = _re.sub(r"[^A-Za-z0-9]+", "-", caption or memory.caption).strip("-").lower() or "memory"
-        ts = int(_time.time() * 1000)
-        short = _uuid.uuid4().hex[:8]
-        base_path = f"memories/{current_user.id}_{caption_slug}_{ts}_{short}_{{i}}"
-
-        try:
-            new_image_urls = save_images(images, base_path)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to save new images: {e}")
-
-        memory.image_urls = new_image_urls
-    elif images is not None and len(images) == 0:
-        # If images provided but empty, clear images
-        memory.image_urls = []
-
+    # Commit changes
     db.commit()
     db.refresh(memory)
+
     return memory
 
 
